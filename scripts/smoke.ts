@@ -12,10 +12,18 @@
  */
 import { eq, inArray, sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
-import { fundamentals, priceBars, quotesLatest, securities } from "@/db/schema";
+import {
+  fundamentals,
+  priceBars,
+  quotesLatest,
+  securities,
+  transactions,
+} from "@/db/schema";
 import { backfillBars, ingestQuotes, refreshSecurity } from "@/ingest/quotes";
 import { loadEnvFiles } from "@/lib/load-env";
 import { getLatestFundamentals } from "@/services/fundamentals";
+import * as D from "@/lib/decimal";
+import { LedgerError, getPortfolio, recordTransaction } from "@/services/portfolio";
 import { InvalidTickerError } from "@/services/securities";
 import {
   addToWatchlist,
@@ -41,6 +49,20 @@ function check(label: string, cond: boolean, detail = "") {
 
 async function teardown() {
   const db = getDb();
+  // Transactions reference securities with ON DELETE RESTRICT, deliberately —
+  // so they have to go first.
+  const ids = await db
+    .select({ id: securities.id })
+    .from(securities)
+    .where(inArray(securities.ticker, TICKERS));
+  if (ids.length) {
+    await db.delete(transactions).where(
+      inArray(
+        transactions.securityId,
+        ids.map((r) => r.id),
+      ),
+    );
+  }
   await db.delete(securities).where(inArray(securities.ticker, TICKERS));
 }
 
@@ -168,6 +190,54 @@ async function main() {
     !!snapshot && snapshot.metrics.some((m) => m.origin === "derived") === false,
     "revenue alone derives nothing, correctly",
   );
+
+  // --- portfolio ledger ---------------------------------------------------
+  await recordTransaction({
+    ticker: a,
+    kind: "buy",
+    tradeDate: new Date(Date.UTC(2024, 0, 10)),
+    quantity: "100",
+    price: "150",
+    fees: "9.95",
+  });
+
+  const portfolio = await getPortfolio();
+  const position = portfolio.positions.find((p) => p.ticker === a);
+  check(
+    "ledger rebuilds a position from the transaction log",
+    !!position && D.toString(position.quantity) === "100",
+    position ? D.toString(position.quantity) : "missing",
+  );
+  check(
+    "cost basis is exact to the cent including fees",
+    !!position && D.toString(position.costBasis) === "15009.95",
+    position ? D.toString(position.costBasis) : "missing",
+  );
+
+  await assertRejects(
+    () =>
+      recordTransaction({
+        ticker: a,
+        kind: "sell",
+        tradeDate: new Date(Date.UTC(2024, 2, 10)),
+        quantity: "500",
+        price: "200",
+      }),
+    LedgerError,
+    "rejects a sale larger than the holding",
+  );
+
+  // Removing a security you hold must be blocked, or the ledger would lose
+  // the other side of a transaction and every figure after it.
+  let blocked = false;
+  try {
+    await db.delete(securities).where(eq(securities.id, added.id));
+  } catch {
+    blocked = true;
+  }
+  check("cannot delete a security with transactions against it", blocked);
+
+  await db.delete(transactions).where(eq(transactions.securityId, added.id));
 
   // --- removal keeps history --------------------------------------------
   check("removes from watchlist", await removeFromWatchlist(added.id));

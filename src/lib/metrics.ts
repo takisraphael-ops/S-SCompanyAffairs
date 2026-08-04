@@ -44,6 +44,16 @@ export const METRIC_KEYS = [
   "pe_ratio",
   "ps_ratio",
   "pb_ratio",
+
+  // Portfolio (P4), computed by the ledger engine from the transaction log.
+  "quantity",
+  "cost_basis",
+  "market_value",
+  "unrealized_gain",
+  "realized_gain",
+  "dividend_income",
+  "total_return",
+  "position_weight",
 ] as const;
 
 export type MetricKey = (typeof METRIC_KEYS)[number];

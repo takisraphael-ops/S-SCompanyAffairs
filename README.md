@@ -16,10 +16,11 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0 through P3 are built.** Watchlist with quote ingest; the explanation
-engine (77 concepts, hover-to-explain, prerequisite graph); news with story
-clustering, entity resolution and materiality ranking; and company detail with
-fundamentals from SEC XBRL, translated filings and an earnings calendar. See
+**P0 through P4 are built.** Watchlist with quote ingest; the explanation
+engine (79 concepts, hover-to-explain, prerequisite graph); news with story
+clustering, entity resolution and materiality ranking; company detail with
+fundamentals from SEC XBRL, translated filings and an earnings calendar; and a
+portfolio ledger with exact-decimal cost basis and split handling. See
 **[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
 
 | Phase | What | Status |
@@ -28,7 +29,7 @@ fundamentals from SEC XBRL, translated filings and an earnings calendar. See
 | P1 | Explanation engine (concepts, `<Term>`, prerequisite DAG) | **done** |
 | P2 | News ingest, dedup, entity resolution, materiality | **done** |
 | P3 | Fundamentals, EDGAR filings, earnings calendar | **done** |
-| P4 | Portfolio ledger and P&L | planned |
+| P4 | Portfolio ledger and P&L | **done** |
 | P5 | AI summaries and contextual explanations | planned |
 | P6 | Alerts and morning digest | planned |
 
@@ -102,6 +103,27 @@ src/
   db/            drizzle schema and migrations
   app/           routes, server actions, cron endpoint
 ```
+
+## How the portfolio works
+
+The transaction log is the only stored truth. Positions, cost basis, realised
+and unrealised gains are **recomputed from it on every page load** — there is
+no positions table. A backdated correction or a newly recorded split therefore
+takes effect immediately, and there is no second copy of the truth to drift.
+
+**Splits are applied when the ledger is read, never written back.** The log
+keeps what actually happened (100 shares at $500); the engine presents the
+adjusted view (400 at $125). Same total cost — a split transfers no value —
+and the audit trail survives.
+
+**All ledger arithmetic is exact.** `12.34 * 3` is `37.019999999999996` in
+binary floating point, and that residue compounds through every lot into a
+realised gain that matters at tax time. Values are BigInt integers scaled by
+10⁸, rounding half away from zero.
+
+FIFO and average cost are both supported per account. They produce different
+realised gains from identical trades — and therefore different tax bills — but
+total return is identical either way, which is pinned by a test.
 
 ## How the news filtering works
 

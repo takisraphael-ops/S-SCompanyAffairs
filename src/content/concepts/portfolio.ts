@@ -9,6 +9,7 @@ export const portfolio: ConceptSource[] = [
     aliases: ["holding"],
     category,
     level: "beginner",
+    metrics: ["quantity"],
     oneLiner: "The shares of one company you own, and what they are currently worth.",
     body: `A position is a single holding: how many shares of one company you own, what you paid, and what it is worth now.
 
@@ -23,6 +24,7 @@ Sizing is also the main lever you actually control. You cannot make an investmen
     category,
     level: "beginner",
     requires: ["position"],
+    metrics: ["cost_basis"],
     oneLiner:
       "What you actually paid for the shares you hold, including fees — the baseline for gains and taxes.",
     body: `Cost basis is the total you paid for a position, including commissions. It is the number every gain calculation is measured against, and the one tax authorities care about.
@@ -69,6 +71,7 @@ The important thing is consistency. Mixing methods across periods produces numbe
     category,
     level: "beginner",
     requires: ["cost-basis", "price"],
+    metrics: ["unrealized_gain"],
     oneLiner:
       "Profit on paper — the value of what you hold above what you paid, before selling.",
     body: `    unrealised gain = (current price − cost basis per share) × shares held
@@ -83,12 +86,49 @@ In most tax systems unrealised gains are not taxed. That asymmetry has consequen
     category,
     level: "beginner",
     requires: ["cost-basis"],
+    metrics: ["realized_gain"],
     oneLiner: "Profit locked in by actually selling — the amount that is usually taxable.",
     body: `A gain becomes realised when you sell. The proceeds minus the [cost basis](/learn/cost-basis) of the shares sold is the realised gain, and it is generally the taxable event.
 
 How long you held matters. Many jurisdictions tax long-held positions at a lower rate than short-term ones, sometimes substantially, which can make the holding period worth more than a few percent of price movement.
 
 Keeping realised and [unrealised](/learn/unrealized-gain) gains separate is essential. Combining them produces a number that describes neither your tax position nor your portfolio's performance.`,
+  },
+  {
+    slug: "market-value",
+    term: "Market value",
+    aliases: ["position value"],
+    category,
+    level: "beginner",
+    requires: ["position", "price"],
+    metrics: ["market_value"],
+    oneLiner:
+      "What a holding is worth right now: shares held times the current price.",
+    body: `    market value = shares held × current price
+
+It is what you would receive if you sold everything at the last traded price, before fees and tax — and it moves every time the price does, whether or not you do anything.
+
+Comparing it to [cost basis](/learn/cost-basis) gives the [unrealised gain](/learn/unrealized-gain). Comparing it to the rest of the portfolio gives [position weight](/learn/position-weight).
+
+For a thinly traded holding it is optimistic. Market value assumes you could sell at the quoted price, which a large position in an illiquid stock cannot — see [liquidity](/learn/liquidity).`,
+  },
+  {
+    slug: "position-weight",
+    term: "Position weight",
+    aliases: ["allocation", "position size"],
+    category,
+    level: "beginner",
+    requires: ["market-value", "diversification"],
+    metrics: ["position_weight"],
+    oneLiner:
+      "A holding's share of the whole portfolio, as a percentage of total market value.",
+    body: `    weight = position market value ÷ total portfolio market value × 100
+
+Weight is what decides how much any single holding actually matters. A stock that doubles changes your outcome very differently at 2% of the portfolio than at 30%.
+
+It drifts on its own. Winners grow into a larger share and losers shrink, so a portfolio left alone becomes steadily more concentrated in whatever has already gone up — which is the opposite of what most people intend.
+
+This is the number to look at before deciding whether you are [diversified](/learn/diversification). Ten holdings with one at 60% is not ten holdings in any meaningful sense.`,
   },
   {
     slug: "diversification",

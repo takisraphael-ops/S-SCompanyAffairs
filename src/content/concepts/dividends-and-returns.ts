@@ -8,7 +8,7 @@ export const dividendsAndReturns: ConceptSource[] = [
     term: "Dividend",
     category,
     level: "beginner",
-    metrics: ["dividend"],
+    metrics: ["dividend", "dividend_income"],
     oneLiner: "A cash payment a company makes to its shareholders out of profits.",
     body: `A dividend is a direct distribution of cash to owners, usually quarterly in the US and typically quoted as an amount per share.
 
@@ -98,6 +98,7 @@ For companies that pay meaningful dividends this understates what a holder actua
     category,
     level: "intermediate",
     requires: ["price-return", "dividend"],
+    metrics: ["total_return"],
     oneLiner:
       "The complete return including dividends, usually assuming they were reinvested.",
     body: `Total return adds dividends back to [price return](/learn/price-return), normally assuming each payment was reinvested into more shares.

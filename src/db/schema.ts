@@ -59,6 +59,37 @@ export const periodType = pgEnum("period_type", [
   "ttm",
 ]);
 
+/**
+ * How to decide which shares were sold when a position was built in pieces.
+ *
+ * The choice changes the realised gain from identical trades, so it is a
+ * per-account setting rather than a global assumption.
+ */
+export const costBasisMethod = pgEnum("cost_basis_method", [
+  "fifo",
+  "average",
+]);
+
+export const transactionKind = pgEnum("transaction_kind", [
+  "buy",
+  "sell",
+  "dividend",
+  "transfer_in",
+  "transfer_out",
+]);
+
+/**
+ * Events that change the share count or the basis without being a trade.
+ *
+ * Modelled explicitly because ignoring them silently corrupts cost basis: a
+ * 4-for-1 split leaves a position looking like a 75% loss, and every gain
+ * computed afterwards is wrong by a factor of four.
+ */
+export const corporateActionKind = pgEnum("corporate_action_kind", [
+  "split",
+  "reverse_split",
+]);
+
 /** Scheduled or past company events. */
 export const eventKind = pgEnum("event_kind", [
   "earnings",
@@ -226,6 +257,111 @@ export const ingestRuns = pgTable(
     error: text("error"),
   },
   (t) => [index("ingest_runs_job_started_idx").on(t.job, t.startedAt)],
+);
+
+/* ------------------------------------------------------------------ *
+ * Portfolio
+ *
+ * The ledger is the source of truth and positions are derived from it on
+ * every read. There is deliberately no positions table: a stored quantity or
+ * cost basis is a second copy of the truth that drifts the moment a backdated
+ * correction or a split arrives, and reconciling it is harder than
+ * recomputing. A personal portfolio is a few hundred rows — replaying it is
+ * free.
+ * ------------------------------------------------------------------ */
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    /** ISO 4217. Multi-currency conversion is out of scope; this records intent. */
+    currency: text("currency").notNull().default("USD"),
+    costBasisMethod: costBasisMethod("cost_basis_method")
+      .notNull()
+      .default("fifo"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    /*
+     * Load-bearing. The account is created lazily on first use, and a single
+     * page render calls that from several places at once — so without this,
+     * two concurrent requests both see no account and both insert one. The
+     * transactions then attach to one account while the portfolio reads the
+     * other, and the holdings silently vanish.
+     */
+    uniqueIndex("accounts_name_key").on(t.name),
+  ],
+);
+
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "restrict" }),
+    kind: transactionKind("kind").notNull(),
+    /** Date the trade happened, not when it was entered. */
+    tradeDate: timestamp("trade_date", { withTimezone: true }).notNull(),
+    /**
+     * Shares, as actually transacted — never split-adjusted in place. History
+     * records what happened; the ledger engine applies splits when it reads.
+     */
+    quantity: numeric("quantity", { precision: 24, scale: 8 }).notNull(),
+    /** Price per share, or per-share amount for a dividend. */
+    price: numeric("price", { precision: 18, scale: 8 }).notNull(),
+    /** Commissions and charges. Part of the basis on a buy. */
+    fees: numeric("fees", { precision: 18, scale: 8 }).notNull().default("0"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Replay order: by trade date, then by entry order for same-day trades.
+    index("transactions_account_date_idx").on(
+      t.accountId,
+      t.tradeDate,
+      t.createdAt,
+    ),
+    index("transactions_security_idx").on(t.securityId),
+    check("transactions_quantity_positive", sql`${t.quantity} > 0`),
+    check("transactions_price_nonneg", sql`${t.price} >= 0`),
+  ],
+);
+
+/**
+ * Splits, applied to every transaction dated before the ex-date.
+ *
+ * `ratio` is new shares per old share: 4 for a 4-for-1 split, 0.1 for a
+ * 1-for-10 reverse split.
+ */
+export const corporateActions = pgTable(
+  "corporate_actions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    kind: corporateActionKind("kind").notNull(),
+    exDate: timestamp("ex_date", { withTimezone: true }).notNull(),
+    ratio: numeric("ratio", { precision: 18, scale: 8 }).notNull(),
+    source: text("source").notNull().default("manual"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("corporate_actions_unique").on(t.securityId, t.kind, t.exDate),
+    index("corporate_actions_security_idx").on(t.securityId),
+    check("corporate_actions_ratio_positive", sql`${t.ratio} > 0`),
+  ],
 );
 
 /* ------------------------------------------------------------------ *
@@ -545,6 +681,12 @@ export type WatchlistItem = typeof watchlistItems.$inferSelect;
 export type PriceBar = typeof priceBars.$inferSelect;
 export type QuoteLatest = typeof quotesLatest.$inferSelect;
 export type IngestRun = typeof ingestRuns.$inferSelect;
+export type Account = typeof accounts.$inferSelect;
+export type Transaction = typeof transactions.$inferSelect;
+export type NewTransaction = typeof transactions.$inferInsert;
+export type CorporateAction = typeof corporateActions.$inferSelect;
+export type TransactionKind = (typeof transactionKind.enumValues)[number];
+export type CostBasisMethod = (typeof costBasisMethod.enumValues)[number];
 export type Fundamental = typeof fundamentals.$inferSelect;
 export type NewFundamental = typeof fundamentals.$inferInsert;
 export type Filing = typeof filings.$inferSelect;

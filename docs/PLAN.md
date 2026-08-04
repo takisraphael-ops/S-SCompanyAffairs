@@ -380,9 +380,41 @@ The P1 mechanism did its job here: adding the new metric keys to the registry
 made `concepts:coverage` fail until `assets`, `liabilities` and
 `shares_outstanding` were mapped to their concepts.
 
-### P4 — Portfolio
+### P4 — Portfolio ✅ built
 Transaction ledger, corporate-action handling, cost basis, realized and
 unrealized P&L — every figure explained in place.
+
+Decisions taken during implementation:
+
+- **Exact decimal arithmetic, not floats.** `12.34 * 3` is
+  `37.019999999999996` in binary floating point, and that residue compounds
+  through every lot into a realised gain a tax authority may care about. All
+  ledger maths runs on BigInt integers scaled by 10⁸, rounding half away from
+  zero. Parsing goes via the string, never through `Number`.
+- **No positions table at all.** The plan sketched one; it is not built. Every
+  read replays the transaction log, so a backdated correction or a newly
+  recorded split takes effect immediately and there is no second copy of the
+  truth to drift.
+- **Splits are applied at read time, never written back.** The ledger records
+  what actually happened — 100 shares at $500 — and the engine presents the
+  split-adjusted view. Rewriting history would destroy the audit trail and be
+  unrepeatable if a ratio were later corrected.
+- **Cost basis method is per account, and only moves value between buckets.**
+  FIFO and average produce different realised gains from identical trades, and
+  therefore different tax bills, but total return is identical either way.
+  That invariant is pinned by a test — anything else would mean an accounting
+  convention created money.
+- **Sales are validated against holdings as at the trade date**, on entry
+  rather than on render, so an impossible ledger is refused instead of
+  producing unreadable figures later.
+- **Full-precision currency in the portfolio.** Compact notation is right for
+  a $383B revenue line and wrong for your own cost basis: "$35.0K" hides the
+  $9.95 of fees and cannot be reconciled against a broker statement.
+- **Securities held in the ledger cannot be deleted** (`ON DELETE RESTRICT`),
+  because losing the other side of a transaction corrupts everything after it.
+
+Not built here: a UI for entering corporate actions — splits are inserted
+directly for now — and multi-currency conversion.
 
 ### P5 — AI layer
 Story-cluster summaries, contextual explanations against live numbers,

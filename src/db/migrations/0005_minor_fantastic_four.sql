@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "accounts_name_key" ON "accounts" USING btree ("name");

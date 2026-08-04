@@ -141,3 +141,25 @@ export function compactNumber(value: number): string {
 export function compactCurrency(value: number): string {
   return `$${compactNumber(value)}`;
 }
+
+/**
+ * Full-precision currency, e.g. "$35,009.95".
+ *
+ * Compact notation is right for corporate figures — nobody reconciles a
+ * $383.29B revenue line to the cent. It is wrong for a portfolio: "$35.0K"
+ * for your own cost basis hides the $9.95 of fees that went into it and
+ * cannot be checked against a broker statement.
+ */
+export function formatCurrency(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Full-precision currency with an explicit sign for gains and losses. */
+export function formatSignedCurrency(value: number): string {
+  return `${value > 0 ? "+" : ""}${formatCurrency(value)}`;
+}
