@@ -4,9 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
-  # Manual runs. Worth having on its own, and necessary here: a push made with
-  # an app token does not create a workflow run, so a branch pushed by
-  # automation needs a way to be checked.
+  # Re-run without pushing: to check a flake, or to get a result for a branch
+  # whose last push predates this file.
   workflow_dispatch:
 
 # A second push supersedes the first: nobody needs the result of a commit that
