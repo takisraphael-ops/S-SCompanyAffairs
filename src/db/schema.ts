@@ -34,6 +34,15 @@ export const ingestStatus = pgEnum("ingest_status", [
   "failed",
 ]);
 
+/** Ordered from least to most assumed knowledge; comparisons rely on that order. */
+export const conceptLevel = pgEnum("concept_level", [
+  "beginner",
+  "intermediate",
+  "advanced",
+]);
+
+export const progressStatus = pgEnum("progress_status", ["seen", "understood"]);
+
 export const securities = pgTable(
   "securities",
   {
@@ -156,9 +165,119 @@ export const ingestRuns = pgTable(
   (t) => [index("ingest_runs_job_started_idx").on(t.job, t.startedAt)],
 );
 
+/* ------------------------------------------------------------------ *
+ * Education
+ *
+ * First-class, not an afterthought (docs/PLAN.md §3). Content is authored
+ * in src/content/concepts and seeded here, so the repo stays the source of
+ * truth while the database serves the read path and the joins.
+ * ------------------------------------------------------------------ */
+
+export const concepts = pgTable(
+  "concepts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** URL segment: /learn/<slug>. Stable; renaming one breaks bookmarks. */
+    slug: text("slug").notNull(),
+    term: text("term").notNull(),
+    /** Alternate phrasings, for search and for future prose auto-linking. */
+    aliases: text("aliases")
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    /** Tooltip text. Must stand alone without the full article. */
+    oneLiner: text("one_liner").notNull(),
+    /** Markdown. Rendered server-side. */
+    body: text("body").notNull(),
+    level: conceptLevel("level").notNull().default("beginner"),
+    category: text("category").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("concepts_slug_key").on(t.slug),
+    index("concepts_category_idx").on(t.category),
+  ],
+);
+
+/**
+ * Prerequisite edges. `concept_id` requires `prerequisite_id`.
+ *
+ * This is a DAG, not a tree — P/E needs both EPS and share price. Cycles are
+ * rejected at seed time; without that check the learning-path walk would not
+ * terminate.
+ */
+export const conceptEdges = pgTable(
+  "concept_edges",
+  {
+    conceptId: uuid("concept_id")
+      .notNull()
+      .references(() => concepts.id, { onDelete: "cascade" }),
+    prerequisiteId: uuid("prerequisite_id")
+      .notNull()
+      .references(() => concepts.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conceptId, t.prerequisiteId] }),
+    index("concept_edges_prereq_idx").on(t.prerequisiteId),
+    // Cheap guard against the degenerate one-node cycle.
+    check("concept_edges_no_self", sql`${t.conceptId} <> ${t.prerequisiteId}`),
+  ],
+);
+
+/**
+ * Maps a displayed metric to the concept that explains it.
+ *
+ * This is the mechanism that makes "explain every number" tractable: any
+ * metric rendered through <MetricLabel> is explainable without per-metric UI
+ * work, and `npm run concepts:coverage` reports the ones still missing.
+ *
+ * `metric_key` is the primary key — a metric has exactly one explanation.
+ */
+export const conceptMetrics = pgTable("concept_metrics", {
+  metricKey: text("metric_key").primaryKey(),
+  conceptId: uuid("concept_id")
+    .notNull()
+    .references(() => concepts.id, { onDelete: "cascade" }),
+});
+
+/**
+ * Per-user preferences. Single-user for now, but keyed by user_id so adding
+ * accounts later is a migration rather than a rewrite.
+ */
+export const userSettings = pgTable("user_settings", {
+  userId: text("user_id").primaryKey(),
+  level: conceptLevel("level").notNull().default("beginner"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const userProgress = pgTable(
+  "user_progress",
+  {
+    userId: text("user_id").notNull(),
+    conceptId: uuid("concept_id")
+      .notNull()
+      .references(() => concepts.id, { onDelete: "cascade" }),
+    status: progressStatus("status").notNull().default("seen"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.conceptId] })],
+);
+
 export type Security = typeof securities.$inferSelect;
 export type NewSecurity = typeof securities.$inferInsert;
 export type WatchlistItem = typeof watchlistItems.$inferSelect;
 export type PriceBar = typeof priceBars.$inferSelect;
 export type QuoteLatest = typeof quotesLatest.$inferSelect;
 export type IngestRun = typeof ingestRuns.$inferSelect;
+export type Concept = typeof concepts.$inferSelect;
+export type NewConcept = typeof concepts.$inferInsert;
+export type ConceptLevel = (typeof conceptLevel.enumValues)[number];
+export type UserSettings = typeof userSettings.$inferSelect;
+export type UserProgress = typeof userProgress.$inferSelect;

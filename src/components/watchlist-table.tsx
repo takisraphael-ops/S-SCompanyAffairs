@@ -1,4 +1,6 @@
 import { removeTickerAction } from "@/app/actions";
+import { MetricLabel } from "@/components/metric-label";
+import { Term } from "@/components/term";
 import {
   direction,
   formatPrice,
@@ -47,17 +49,23 @@ export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+            {/*
+              Headers go through <Term>/<MetricLabel> rather than plain text.
+              The metric variants resolve their explanation from the
+              concept_metrics mapping, so a column added later is explainable
+              as soon as its concept exists — no change needed here.
+            */}
             <th scope="col" className="py-2 pr-4 font-medium">
-              Symbol
+              <Term slug="ticker">Symbol</Term>
             </th>
             <th scope="col" className="py-2 pr-4 font-medium">
               Company
             </th>
             <th scope="col" className="py-2 pr-4 text-right font-medium">
-              Last
+              <MetricLabel metricKey="price">Last</MetricLabel>
             </th>
             <th scope="col" className="py-2 pr-4 text-right font-medium">
-              Change
+              <MetricLabel metricKey="change_pct">Change</MetricLabel>
             </th>
             <th scope="col" className="py-2 pr-4 text-right font-medium">
               Updated

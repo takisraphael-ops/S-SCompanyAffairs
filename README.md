@@ -16,15 +16,16 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0 (foundation) is built.** Watchlist, quote ingest, provider abstraction,
-scheduled refresh. Everything else is planned — see
-**[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
+**P0 and P1 are built.** Watchlist with quote ingest, and the explanation
+engine: 77 concepts, hover-to-explain on every metric, a browsable glossary,
+and a prerequisite graph. See **[docs/PLAN.md](docs/PLAN.md)** for the
+architecture and phase order.
 
 | Phase | What | Status |
 |---|---|---|
 | P0 | Foundation: watchlist, quotes, ingest, cron | **done** |
-| P1 | Explanation engine (concepts, `<Term>`, prerequisite DAG) | next |
-| P2 | News ingest, dedup, entity resolution | planned |
+| P1 | Explanation engine (concepts, `<Term>`, prerequisite DAG) | **done** |
+| P2 | News ingest, dedup, entity resolution | next |
 | P3 | Fundamentals, EDGAR filings, earnings calendar | planned |
 | P4 | Portfolio ledger and P&L | planned |
 | P5 | AI summaries and contextual explanations | planned |
@@ -38,6 +39,7 @@ Requires Node 20+ and a PostgreSQL database.
 npm install
 cp .env.example .env.local     # then edit DATABASE_URL
 npm run db:migrate
+npm run concepts:seed          # load the 77 explanations into the database
 npm run dev                    # http://localhost:3000
 ```
 
@@ -68,6 +70,8 @@ history builds itself from the day you add a ticker.
 | `npm test` | Unit tests (provider parsing, retry, rate limiting) |
 | `npm run smoke` | Round-trip check against a real database — **writes to `DATABASE_URL`** |
 | `npm run ingest` | Run the quote ingest once from the CLI |
+| `npm run concepts:seed` | Reconcile the database with the authored concepts |
+| `npm run concepts:coverage` | Fail if a displayed metric has no explanation |
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run lint` / `npm run typecheck` | Static checks |
@@ -87,9 +91,30 @@ src/
   providers/     adapters (finnhub, edgar, mock) behind capability interfaces
   ingest/        scheduled jobs that write to the database
   services/      database reads and writes used by the UI
+  content/       authored concept explanations + validation
   db/            drizzle schema and migrations
   app/           routes, server actions, cron endpoint
 ```
+
+## How the explanations work
+
+Content lives in `src/content/concepts` as typed modules with markdown bodies.
+`npm run concepts:seed` validates it — unique slugs, resolvable prerequisites,
+no cycles in the prerequisite graph, one concept per metric, no dead
+`/learn/` links — and only then reconciles the database to match.
+
+Two components consume it:
+
+- `<Term slug="pe-ratio">P/E</Term>` explains a named concept.
+- `<MetricLabel metricKey="change_pct">Change</MetricLabel>` explains whatever
+  concept claims that metric.
+
+The second is the one that scales. Because the mapping lives in
+`concept_metrics` rather than in the UI, a metric added to the ingest pipeline
+becomes explainable as soon as someone writes its concept — no component
+changes. `npm run concepts:coverage` fails when a metric the UI can render has
+no explanation, which is what stops coverage rotting as later phases add
+fundamentals.
 
 ## Scheduling
 

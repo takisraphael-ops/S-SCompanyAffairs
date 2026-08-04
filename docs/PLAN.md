@@ -285,11 +285,31 @@ Decisions taken during implementation, beyond what was planned:
 - **`ingest_runs` records every job execution.** Cron runs unattended; without
   it the sole symptom of a silently failing job is quietly stale prices.
 
-### P1 — Explanation engine
-`concepts` schema, MDX authoring pipeline, `<Term>` component, user-level
-setting, prerequisite DAG. Seed ~60 core concepts (price, market cap, P/E, EPS,
-revenue, margin, dividend, yield, volume, market order, 10-K, 8-K…).
+### P1 — Explanation engine ✅ built
+`concepts` schema, authoring pipeline, `<Term>` component, user-level setting,
+prerequisite DAG. 77 concepts across nine categories.
 *Built now so every later phase uses it by default.*
+
+Decisions taken during implementation:
+
+- **Content is authored as typed TypeScript modules, not MDX files.** The
+  bodies are still plain markdown; wrapping them in modules makes the level
+  and category unions compile-checked and avoids a frontmatter parser. The
+  repo stays the source of truth and `concepts:seed` reconciles the database
+  to it, including deleting concepts removed from the content.
+- **Validation runs before anything is written.** Unique slugs, resolvable
+  prerequisites, no cycles, one owner per metric, and no `/learn/` links to
+  concepts that do not exist. The same checks run in the test suite, so a
+  broken cross-reference fails CI rather than a page at runtime.
+- **The concept index is request-cached via React `cache()`.** A page with
+  fifty `<Term>`s issues one query. Explanation had to be cheap enough to use
+  by default, otherwise it would get used sparingly and coverage would rot.
+- **The tooltip is fixed-positioned and resets inherited typography.** It must
+  escape the watchlist table's `overflow-x-auto` container, and it must not
+  inherit the `uppercase`/`tracking-wide` of whatever it is anchored to.
+- **Progressive disclosure is level-gated scaffolding, not level-gated
+  access.** Every term is explainable at every level; what changes is whether
+  the app volunteers an explanation unprompted.
 
 ### P2 — News
 Ingest from Finnhub + RSS, dedup cascade, entity resolution, per-company feed,
