@@ -16,17 +16,17 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0 and P1 are built.** Watchlist with quote ingest, and the explanation
-engine: 77 concepts, hover-to-explain on every metric, a browsable glossary,
-and a prerequisite graph. See **[docs/PLAN.md](docs/PLAN.md)** for the
-architecture and phase order.
+**P0, P1 and P2 are built.** Watchlist with quote ingest; the explanation
+engine (77 concepts, hover-to-explain, prerequisite graph); and news with
+story clustering, entity resolution and materiality ranking. See
+**[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
 
 | Phase | What | Status |
 |---|---|---|
 | P0 | Foundation: watchlist, quotes, ingest, cron | **done** |
 | P1 | Explanation engine (concepts, `<Term>`, prerequisite DAG) | **done** |
-| P2 | News ingest, dedup, entity resolution | next |
-| P3 | Fundamentals, EDGAR filings, earnings calendar | planned |
+| P2 | News ingest, dedup, entity resolution, materiality | **done** |
+| P3 | Fundamentals, EDGAR filings, earnings calendar | next |
 | P4 | Portfolio ledger and P&L | planned |
 | P5 | AI summaries and contextual explanations | planned |
 | P6 | Alerts and morning digest | planned |
@@ -70,6 +70,7 @@ history builds itself from the day you add a ticker.
 | `npm test` | Unit tests (provider parsing, retry, rate limiting) |
 | `npm run smoke` | Round-trip check against a real database — **writes to `DATABASE_URL`** |
 | `npm run ingest` | Run the quote ingest once from the CLI |
+| `npm run ingest:news` | Run the news ingest; prints the dedup and match-method breakdown |
 | `npm run concepts:seed` | Reconcile the database with the authored concepts |
 | `npm run concepts:coverage` | Fail if a displayed metric has no explanation |
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
@@ -95,6 +96,33 @@ src/
   db/            drizzle schema and migrations
   app/           routes, server actions, cron endpoint
 ```
+
+## How the news filtering works
+
+Prices are a solved endpoint. The hard part is showing what happened to a
+*business* and suppressing everything else, and three mechanisms carry that.
+
+**Attribution comes from the fetch, not the text.** Feeds are pulled one
+company at a time, so an article is already attributed before any matching
+happens. Text matching exists to catch mentions of *other* watchlist companies
+— a supply agreement is genuinely news about both parties. Because a wrong
+cross-link is worse than a missed one, those rules are conservative: a bare
+"Apple" is not enough, but "Apple Inc.", "Apple ($AAPL)" or a distinctive
+multi-word name is. Every link records *how* it matched, and `/news` shows the
+per-method counts and average confidence so the rules can be tuned against
+evidence.
+
+**Story clustering** collapses the forty copies of one press release into one
+entry with "+39 similar". The cascade is canonical URL, then exact normalised
+headline, then simhash confirmed by token overlap. Candidates are scoped to
+one company — corporate headlines are templated enough that "Apple Reports
+Third Quarter Results" and "Microsoft Reports Third Quarter Results" would
+otherwise merge, silently hiding one.
+
+**Materiality** is source weight times event weight. An 8-K outranks a
+listicle, and because it multiplies, a trusted outlet does not launder a
+listicle. The feed stays chronological — reordering by score hides what is new
+— and low-signal items collapse behind a disclosure instead.
 
 ## How the explanations work
 

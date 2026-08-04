@@ -79,6 +79,22 @@ async function quoteExists(ticker: string): Promise<boolean> {
   }
 }
 
+/** Look up a security by ticker. Returns null when it is not tracked. */
+export async function getSecurityByTicker(
+  input: string,
+): Promise<Security | null> {
+  const ticker = normalizeTicker(input);
+  if (!isValidTicker(ticker)) return null;
+
+  const rows = await getDb()
+    .select()
+    .from(securities)
+    .where(eq(securities.ticker, ticker))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export async function findOrCreateSecurity(input: string): Promise<Security> {
   const ticker = normalizeTicker(input);
   if (!isValidTicker(ticker)) throw new InvalidTickerError(input);

@@ -51,6 +51,17 @@ export async function listWatchlist(): Promise<WatchlistRow[]> {
     .orderBy(asc(securities.ticker));
 }
 
+/** Latest stored quote for one security, or null before the first ingest. */
+export async function getQuoteFor(securityId: string) {
+  const rows = await getDb()
+    .select()
+    .from(quotesLatest)
+    .where(eq(quotesLatest.securityId, securityId))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export async function addToWatchlist(ticker: string) {
   const security = await findOrCreateSecurity(ticker);
 

@@ -1,8 +1,16 @@
 import { getEnv } from "@/lib/env";
 import { EdgarProvider } from "./edgar";
 import { FinnhubProvider } from "./finnhub";
+import { FinnhubNewsProvider } from "./finnhub/news";
 import { MockProvider } from "./mock";
-import type { FilingsProvider, ProfileProvider, QuoteProvider } from "./types";
+import { MockNewsProvider } from "./mock/news";
+import { RssNewsProvider } from "./rss";
+import type {
+  FilingsProvider,
+  NewsProvider,
+  ProfileProvider,
+  QuoteProvider,
+} from "./types";
 
 /**
  * Resolves capability interfaces to concrete adapters from configuration.
@@ -53,8 +61,43 @@ export function getSupplementalProfileProvider(): ProfileProvider | null {
   return null;
 }
 
+let newsProviders: NewsProvider[] | null = null;
+
+/**
+ * News adapters run as a set rather than one-of.
+ *
+ * Coverage is the constraint that matters: no single free source sees
+ * everything, and story clustering already collapses the overlap that running
+ * several produces. Adding a source is therefore cheap, and dropping one
+ * degrades coverage rather than breaking the feed.
+ */
+export function getNewsProviders(): NewsProvider[] {
+  if (newsProviders) return newsProviders;
+
+  const env = getEnv();
+  const built: NewsProvider[] = [];
+
+  for (const key of env.NEWS_PROVIDERS) {
+    switch (key) {
+      case "finnhub":
+        built.push(new FinnhubNewsProvider(env.FINNHUB_API_KEY!));
+        break;
+      case "rss":
+        built.push(new RssNewsProvider());
+        break;
+      case "mock":
+        built.push(new MockNewsProvider());
+        break;
+    }
+  }
+
+  newsProviders = built;
+  return newsProviders;
+}
+
 /** Test seam. */
 export function resetProviderCache(): void {
   quoteProvider = null;
   filingsProvider = null;
+  newsProviders = null;
 }

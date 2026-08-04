@@ -52,6 +52,46 @@ export interface Filing {
   description: string | null;
 }
 
+/** A company to fetch news for. Feeds are keyed by name as well as ticker. */
+export interface NewsTarget {
+  securityId: string;
+  ticker: string;
+  name: string;
+}
+
+export interface RawArticle {
+  title: string;
+  url: string;
+  publishedAt: Date;
+  snippet?: string | null;
+  /** Outlet that published it, when the feed names one. */
+  publisher?: string | null;
+  /** Tickers the provider itself tagged the article with, if any. */
+  tickers?: string[];
+  /** Which configured source this came from; see news_sources.key. */
+  sourceKey: string;
+  sourceName: string;
+  sourceKind: SourceKindValue;
+}
+
+/**
+ * Mirrors the `source_kind` enum. Declared here rather than imported so the
+ * provider layer stays free of database concerns.
+ */
+export type SourceKindValue =
+  | "ir"
+  | "wire"
+  | "regulator"
+  | "outlet"
+  | "aggregator"
+  | "mock";
+
+export interface NewsProvider {
+  readonly name: string;
+  /** Articles about `target` published since `since`. */
+  getCompanyNews(target: NewsTarget, since: Date): Promise<RawArticle[]>;
+}
+
 export interface QuoteProvider {
   readonly name: string;
   getQuote(ticker: string): Promise<Quote>;

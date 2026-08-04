@@ -31,6 +31,12 @@ export default function RootLayout({
                 Watchlist
               </Link>
               <Link
+                href="/news"
+                className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
+              >
+                News
+              </Link>
+              <Link
                 href="/learn"
                 className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
               >

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -42,6 +43,45 @@ export const conceptLevel = pgEnum("concept_level", [
 ]);
 
 export const progressStatus = pgEnum("progress_status", ["seen", "understood"]);
+
+/** What kind of outlet a story came from. Drives the source weight. */
+export const sourceKind = pgEnum("source_kind", [
+  "ir", // company investor relations / official
+  "wire", // Business Wire, PR Newswire, GlobeNewswire
+  "regulator", // SEC and equivalents
+  "outlet", // ordinary news organisations
+  "aggregator", // syndicators and portals
+  "mock",
+]);
+
+/**
+ * What the article is about. Ordered loosely by how material it typically is;
+ * see src/news/classify.ts for the weights.
+ */
+export const eventType = pgEnum("event_type", [
+  "earnings",
+  "guidance",
+  "ma",
+  "leadership",
+  "capital_return",
+  "legal",
+  "product",
+  "analyst",
+  "opinion",
+  "other",
+]);
+
+/**
+ * How an article came to be linked to a security. Recorded so precision can
+ * be measured per method and the rules tuned, rather than guessed at.
+ */
+export const linkMethod = pgEnum("link_method", [
+  "provider_tag", // provider returned it for this ticker
+  "feed_query", // we fetched a per-security feed
+  "ticker", // $AAPL or AAPL on a word boundary in the text
+  "name", // company name matched
+  "alias", // curated alias matched
+]);
 
 export const securities = pgTable(
   "securities",
@@ -166,6 +206,111 @@ export const ingestRuns = pgTable(
 );
 
 /* ------------------------------------------------------------------ *
+ * News
+ *
+ * The difficulty here is not fetching — it is suppressing the churn. See
+ * docs/PLAN.md §4. Three things carry that: story clustering so forty copies
+ * of one press release appear once, per-method link provenance so relevance
+ * rules can be measured rather than guessed at, and a materiality score so an
+ * 8-K outranks a listicle.
+ * ------------------------------------------------------------------ */
+
+export const newsSources = pgTable("news_sources", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  /** Stable identifier used by adapters, e.g. "finnhub", "rss:google-news". */
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  kind: sourceKind("kind").notNull(),
+  /**
+   * 0–1 trust weight, multiplied into materiality. A company's own filing
+   * outranks an aggregator restating it.
+   */
+  weight: numeric("weight", { precision: 4, scale: 3 }).notNull().default("0.5"),
+  enabled: boolean("enabled").notNull().default(true),
+});
+
+/**
+ * A cluster of articles reporting the same underlying event.
+ *
+ * The canonical article is chosen at read time by source weight rather than
+ * stored here: a denormalised pointer would need updating whenever a
+ * better-sourced copy arrives, and it would make stories and articles
+ * mutually dependent for no real gain.
+ */
+export const stories = pgTable("stories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  /** Maintained by ingest so the feed can show "+N similar" without a subquery. */
+  articleCount: integer("article_count").notNull().default(1),
+});
+
+export const articles = pgTable(
+  "articles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => newsSources.id, { onDelete: "cascade" }),
+    storyId: uuid("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    /** Tracking parameters stripped. The uniqueness key for "seen this already". */
+    urlCanonical: text("url_canonical").notNull(),
+    urlOriginal: text("url_original").notNull(),
+    title: text("title").notNull(),
+    /** Lowercased, publisher suffix and punctuation removed. Exact-match dedup. */
+    titleNormalized: text("title_normalized").notNull(),
+    publisher: text("publisher"),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    snippet: text("snippet"),
+    /** 64-bit simhash as 16 hex chars; near-duplicate prefilter. */
+    simhash: text("simhash").notNull(),
+    eventType: eventType("event_type").notNull().default("other"),
+    /** 0–1: source weight times event weight. Drives ranking and collapsing. */
+    materiality: numeric("materiality", { precision: 4, scale: 3 })
+      .notNull()
+      .default("0.5"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("articles_url_canonical_key").on(t.urlCanonical),
+    index("articles_published_idx").on(t.publishedAt),
+    index("articles_story_idx").on(t.storyId),
+    index("articles_title_norm_idx").on(t.titleNormalized),
+  ],
+);
+
+/**
+ * Many-to-many by design: a supply agreement is genuinely news about both
+ * parties and should appear on both watchlist entries.
+ */
+export const articleLinks = pgTable(
+  "article_links",
+  {
+    articleId: uuid("article_id")
+      .notNull()
+      .references(() => articles.id, { onDelete: "cascade" }),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    /** 0–1 confidence that the article is really about this company. */
+    relevance: numeric("relevance", { precision: 4, scale: 3 }).notNull(),
+    method: linkMethod("method").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.articleId, t.securityId] }),
+    index("article_links_security_idx").on(t.securityId),
+  ],
+);
+
+/* ------------------------------------------------------------------ *
  * Education
  *
  * First-class, not an afterthought (docs/PLAN.md §3). Content is authored
@@ -276,6 +421,14 @@ export type WatchlistItem = typeof watchlistItems.$inferSelect;
 export type PriceBar = typeof priceBars.$inferSelect;
 export type QuoteLatest = typeof quotesLatest.$inferSelect;
 export type IngestRun = typeof ingestRuns.$inferSelect;
+export type NewsSource = typeof newsSources.$inferSelect;
+export type Story = typeof stories.$inferSelect;
+export type Article = typeof articles.$inferSelect;
+export type NewArticle = typeof articles.$inferInsert;
+export type ArticleLink = typeof articleLinks.$inferSelect;
+export type EventType = (typeof eventType.enumValues)[number];
+export type LinkMethod = (typeof linkMethod.enumValues)[number];
+export type SourceKind = (typeof sourceKind.enumValues)[number];
 export type Concept = typeof concepts.$inferSelect;
 export type NewConcept = typeof concepts.$inferInsert;
 export type ConceptLevel = (typeof conceptLevel.enumValues)[number];

@@ -17,6 +17,25 @@ const envSchema = z
     QUOTE_PROVIDER: z.enum(["mock", "finnhub"]).default("mock"),
     FILINGS_PROVIDER: z.enum(["edgar"]).default("edgar"),
 
+    /**
+     * News adapters to run, comma-separated. Unlike quotes, several run
+     * together — breadth of coverage matters more than picking one source,
+     * and story clustering collapses the resulting overlap.
+     */
+    NEWS_PROVIDERS: z
+      .string()
+      .default("mock")
+      .transform((raw) =>
+        raw
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.enum(["mock", "finnhub", "rss"])).min(1)),
+
+    /** How far back to look on each news ingest run. */
+    NEWS_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
     FINNHUB_API_KEY: z.string().optional(),
 
     /**
@@ -42,6 +61,13 @@ const envSchema = z
         code: "custom",
         path: ["FINNHUB_API_KEY"],
         message: "FINNHUB_API_KEY is required when QUOTE_PROVIDER=finnhub",
+      });
+    }
+    if (val.NEWS_PROVIDERS.includes("finnhub") && !val.FINNHUB_API_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["FINNHUB_API_KEY"],
+        message: "FINNHUB_API_KEY is required when NEWS_PROVIDERS includes finnhub",
       });
     }
     if (val.NODE_ENV === "production" && !val.CRON_SECRET) {

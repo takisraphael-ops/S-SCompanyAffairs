@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { removeTickerAction } from "@/app/actions";
 import { MetricLabel } from "@/components/metric-label";
 import { Term } from "@/components/term";
@@ -81,7 +82,14 @@ export function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
               key={row.watchlistItemId}
               className="border-b border-neutral-100 last:border-0 dark:border-neutral-900"
             >
-              <td className="py-3 pr-4 font-medium">{row.ticker}</td>
+              <td className="py-3 pr-4 font-medium">
+                <Link
+                  href={`/company/${row.ticker}`}
+                  className="underline-offset-4 hover:underline"
+                >
+                  {row.ticker}
+                </Link>
+              </td>
               <td className="max-w-xs truncate py-3 pr-4 text-neutral-600 dark:text-neutral-400">
                 {/*
                   `name` falls back to the ticker when neither EDGAR nor the

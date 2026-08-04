@@ -311,9 +311,42 @@ Decisions taken during implementation:
   access.** Every term is explainable at every level; what changes is whether
   the app volunteers an explanation unprompted.
 
-### P2 — News
+### P2 — News ✅ built
 Ingest from Finnhub + RSS, dedup cascade, entity resolution, per-company feed,
 materiality ranking. *Where the app starts earning its keep.*
+
+Decisions taken during implementation:
+
+- **Fetching is per-security, so attribution does not depend on text.** Feeds
+  are pulled one company at a time, which yields a `feed_query` link at 0.95
+  without any matching. Text matching exists to find mentions of *other*
+  watchlist companies, and since a wrong cross-link is worse than a missed
+  one, those rules are deliberately conservative.
+- **Single-word company names need corroboration.** A bare "Apple" scores 0.35
+  and is dropped; "Apple Inc.", "Apple ($AAPL)", or a distinctive multi-word
+  name scores 0.85. Tickers of one or two characters are ignored without a `$`
+  prefix.
+- **Story clustering is scoped to one company.** Corporate headlines are
+  templated, so "Apple Reports Third Quarter Results" and "Microsoft Reports
+  Third Quarter Results" clear any reasonable similarity bar. Candidates are
+  restricted to articles already linked to the same security — two articles
+  about different companies are never the same story.
+- **Similarity requires simhash *and* token overlap, at a high threshold.**
+  0.8 Jaccard, because "Apple Names New CFO" and "Apple Names New CEO" share
+  0.6. Straight syndication is already caught by exact normalised-title match,
+  so this stage only handles near-misses, and precision is worth more than
+  recall: a duplicate is an annoyance, a swallowed story is a failure.
+- **Materiality is multiplicative.** Source weight times event weight, so a
+  trusted outlet does not launder a listicle and an aggregator's restatement
+  ranks below the company's own release.
+- **The feed stays chronological.** Ranking by score makes it impossible to
+  see what is new; low-signal items are collapsed behind a disclosure instead.
+- **Link provenance is exposed in the UI**, not just stored — the per-method
+  counts and average confidence are what make the relevance rules tunable
+  against evidence.
+
+Not built here: the company page carries news only. Fundamentals, filings and
+the earnings calendar join it in P3.
 
 ### P3 — Company detail
 Fundamentals ingest into the EAV table, metric → concept auto-linking, EDGAR
