@@ -1,9 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EventsStrip } from "@/components/events-strip";
+import { FilingsList } from "@/components/filings-list";
+import { KeyFigures } from "@/components/key-figures";
 import { NewsFeed } from "@/components/news-feed";
 import { Term } from "@/components/term";
-import { formatPrice, formatSigned, formatSignedPct, direction } from "@/lib/format";
+import { formatPrice, formatSigned, formatSignedPct, direction, toNumber } from "@/lib/format";
+import {
+  getLatestFundamentals,
+  listEvents,
+  listFilings,
+} from "@/services/fundamentals";
 import { listCompanyNews } from "@/services/news";
 import { getSecurityByTicker } from "@/services/securities";
 import { getQuoteFor } from "@/services/watchlist";
@@ -24,20 +32,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 /**
- * Company page.
+ * Company page: price, key figures, what is happening, filings and calendar.
  *
- * P2 fills this with news; P3 adds fundamentals, filings and the earnings
- * calendar alongside. The header deliberately reuses the same quote fields as
- * the watchlist so both explain themselves through the same concepts.
+ * Every figure explains itself through the same `concept_metrics` mapping the
+ * watchlist uses, so nothing here needs to know about concepts.
  */
 export default async function CompanyPage({ params }: Props) {
   const { ticker } = await params;
   const security = await getSecurityByTicker(ticker);
   if (!security) notFound();
 
-  const [news, quote] = await Promise.all([
+  // The quote is needed before fundamentals, because market cap, P/E and the
+  // other price-dependent figures are derived from it at read time rather
+  // than stored (src/lib/derive.ts).
+  const quote = await getQuoteFor(security.id);
+
+  const [news, snapshot, filings, events] = await Promise.all([
     listCompanyNews(security.id),
-    getQuoteFor(security.id),
+    getLatestFundamentals(security.id, { price: toNumber(quote?.price) }),
+    listFilings(security.id),
+    listEvents(security.id),
   ]);
 
   const dir = direction(quote?.changePct);
@@ -83,7 +97,23 @@ export default async function CompanyPage({ params }: Props) {
         )}
       </header>
 
-      <section>
+      {events.length > 0 && (
+        <section className="mb-10">
+          <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Calendar
+          </h3>
+          <EventsStrip events={events} />
+        </section>
+      )}
+
+      <section className="mb-10">
+        <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
+          Key figures
+        </h3>
+        <KeyFigures snapshot={snapshot} />
+      </section>
+
+      <section className="mb-10">
         <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">
           What&apos;s happening
         </h3>
@@ -98,6 +128,17 @@ export default async function CompanyPage({ params }: Props) {
           currentTicker={security.ticker}
           emptyMessage={`No news stored for ${security.ticker} yet. Run \`npm run ingest:news\`.`}
         />
+      </section>
+
+      <section>
+        <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">
+          Filings
+        </h3>
+        <p className="mb-3 text-xs text-neutral-400">
+          Straight from SEC EDGAR. Each form code is translated — these are the
+          primary documents everything else is written from.
+        </p>
+        <FilingsList filings={filings} />
       </section>
     </div>
   );

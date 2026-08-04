@@ -10,7 +10,7 @@
  * Keys are snake_case and match the `metric_key` column.
  */
 export const METRIC_KEYS = [
-  // Rendered today (P0 quotes).
+  // Quotes (P0).
   "price",
   "previous_close",
   "change",
@@ -18,32 +18,80 @@ export const METRIC_KEYS = [
   "day_high",
   "day_low",
   "volume",
+
+  // Reported fundamentals (P3), extracted from SEC XBRL.
+  "revenue",
+  "gross_profit",
+  "operating_income",
+  "net_income",
+  "eps",
+  "operating_cash_flow",
+  "capex",
+  "assets",
+  "liabilities",
+  "book_value",
+  "cash",
+  "shares_outstanding",
+
+  // Derived at read time from the above plus the live price (src/lib/derive.ts).
+  "gross_margin",
+  "operating_margin",
+  "net_margin",
+  "free_cash_flow",
+  "debt_to_equity",
+  "current_ratio",
+  "market_cap",
+  "pe_ratio",
+  "ps_ratio",
+  "pb_ratio",
 ] as const;
 
 export type MetricKey = (typeof METRIC_KEYS)[number];
 
 /** Metric keys used by later phases; concepts may map them ahead of use. */
 export const PLANNED_METRIC_KEYS = [
-  "market_cap",
-  "eps",
-  "pe_ratio",
-  "ps_ratio",
-  "pb_ratio",
-  "revenue",
-  "gross_profit",
-  "gross_margin",
-  "operating_income",
-  "operating_margin",
-  "net_income",
-  "net_margin",
-  "book_value",
-  "cash",
-  "current_ratio",
-  "debt_to_equity",
-  "operating_cash_flow",
-  "capex",
-  "free_cash_flow",
   "dividend",
   "dividend_yield",
   "payout_ratio",
 ] as const;
+
+/**
+ * Display order and grouping for the company page.
+ *
+ * Grouped the way the statements themselves are, so someone learning can see
+ * that gross profit sits under revenue and margins are derived from both.
+ */
+export const METRIC_GROUPS: Array<{ title: string; keys: string[] }> = [
+  {
+    title: "Size and valuation",
+    keys: ["market_cap", "pe_ratio", "ps_ratio", "pb_ratio", "shares_outstanding"],
+  },
+  {
+    title: "Income statement",
+    keys: [
+      "revenue",
+      "gross_profit",
+      "gross_margin",
+      "operating_income",
+      "operating_margin",
+      "net_income",
+      "net_margin",
+      "eps",
+    ],
+  },
+  {
+    title: "Cash flow",
+    keys: ["operating_cash_flow", "capex", "free_cash_flow"],
+  },
+  {
+    title: "Balance sheet",
+    keys: [
+      "assets",
+      "liabilities",
+      "book_value",
+      "cash",
+      "current_ratio",
+      "debt_to_equity",
+    ],
+  },
+];

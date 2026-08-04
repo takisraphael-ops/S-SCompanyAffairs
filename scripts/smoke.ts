@@ -12,9 +12,10 @@
  */
 import { eq, inArray, sql } from "drizzle-orm";
 import { closeDb, getDb } from "@/db";
-import { priceBars, quotesLatest, securities } from "@/db/schema";
+import { fundamentals, priceBars, quotesLatest, securities } from "@/db/schema";
 import { backfillBars, ingestQuotes, refreshSecurity } from "@/ingest/quotes";
 import { loadEnvFiles } from "@/lib/load-env";
+import { getLatestFundamentals } from "@/services/fundamentals";
 import { InvalidTickerError } from "@/services/securities";
 import {
   addToWatchlist,
@@ -123,6 +124,49 @@ async function main() {
     "re-running ingest does not duplicate today's bar",
     barsBefore === (await countBars()),
     `${barsBefore} -> ${await countBars()}`,
+  );
+
+  // --- fundamentals upsert ------------------------------------------------
+  // The composite key is what makes a restatement overwrite the figure it
+  // restates instead of adding a second, contradictory row for the period.
+  const periodEnd = new Date(Date.UTC(2023, 11, 31));
+  const writeFact = (value: number, source: string) =>
+    db
+      .insert(fundamentals)
+      .values({
+        securityId: added.id,
+        metricKey: "revenue",
+        periodEnd,
+        periodType: "annual",
+        value: String(value),
+        unit: "USD",
+        source,
+      })
+      .onConflictDoUpdate({
+        target: [
+          fundamentals.securityId,
+          fundamentals.metricKey,
+          fundamentals.periodEnd,
+          fundamentals.periodType,
+        ],
+        set: { value: sql`excluded."value"`, source: sql`excluded."source"` },
+      });
+
+  await writeFact(1000, "smoke:original");
+  await writeFact(1100, "smoke:restated");
+
+  const factRows = await db
+    .select()
+    .from(fundamentals)
+    .where(eq(fundamentals.securityId, added.id));
+  check("a restatement replaces the period, not duplicates it", factRows.length === 1, `${factRows.length} rows`);
+  check("the restated value wins", Number(factRows[0]?.value) === 1100, String(factRows[0]?.value));
+
+  const snapshot = await getLatestFundamentals(added.id, { price: 50 });
+  check(
+    "derived metrics are computed on read",
+    !!snapshot && snapshot.metrics.some((m) => m.origin === "derived") === false,
+    "revenue alone derives nothing, correctly",
   );
 
   // --- removal keeps history --------------------------------------------

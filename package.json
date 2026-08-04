@@ -12,11 +12,13 @@
     "smoke": "tsx scripts/smoke.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "setup": "npm run db:migrate && npm run concepts:seed",
     "db:studio": "drizzle-kit studio",
     "ingest": "tsx scripts/ingest.ts",
     "concepts:seed": "tsx scripts/seed-concepts.ts",
     "concepts:coverage": "tsx scripts/concept-coverage.ts",
-    "ingest:news": "tsx scripts/ingest-news.ts"
+    "ingest:news": "tsx scripts/ingest-news.ts",
+    "ingest:company": "tsx scripts/ingest-company.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

@@ -8,6 +8,7 @@ export const balanceSheet: ConceptSource[] = [
     term: "Assets",
     category,
     level: "beginner",
+    metrics: ["assets"],
     oneLiner: "Everything the company owns that has value — cash, inventory, buildings, patents.",
     body: `Assets are the resources the business controls: cash in the bank, money customers owe it, inventory on shelves, factories, equipment, and intangibles like patents and acquired brands.
 
@@ -20,6 +21,7 @@ The balance sheet records assets at historical cost less depreciation, not at wh
     term: "Liabilities",
     category,
     level: "beginner",
+    metrics: ["liabilities"],
     oneLiner: "Everything the company owes — loans, unpaid bills, obligations to customers.",
     body: `Liabilities are claims against the company: bank loans and bonds, money owed to suppliers, wages not yet paid, taxes due, and money taken from customers for services not yet delivered.
 

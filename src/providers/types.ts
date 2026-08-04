@@ -109,6 +109,36 @@ export interface ProfileProvider {
   getProfile(ticker: string): Promise<CompanyProfile | null>;
 }
 
+export interface FundamentalDatum {
+  metricKey: string;
+  periodEnd: Date;
+  periodType: "annual" | "quarterly" | "ttm";
+  value: number;
+  unit: string;
+  filedAt?: Date | null;
+  /** Provenance, e.g. "edgar:10-K". */
+  source: string;
+}
+
+export interface FundamentalsProvider {
+  readonly name: string;
+  /** Reported facts for a company. Empty when the provider has none. */
+  getFundamentals(target: NewsTarget): Promise<FundamentalDatum[]>;
+}
+
+export interface CompanyEventDatum {
+  kind: "earnings" | "dividend" | "split" | "shareholder_meeting";
+  scheduledAt: Date;
+  payload?: Record<string, unknown> | null;
+  source: string;
+}
+
+export interface CalendarProvider {
+  readonly name: string;
+  /** Scheduled and recent events for a company. */
+  getEvents(target: NewsTarget, from: Date, to: Date): Promise<CompanyEventDatum[]>;
+}
+
 export interface FilingsProvider {
   readonly name: string;
   /** Ticker to zero-padded 10-digit SEC Central Index Key. */

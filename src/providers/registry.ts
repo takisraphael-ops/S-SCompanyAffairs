@@ -3,10 +3,13 @@ import { EdgarProvider } from "./edgar";
 import { FinnhubProvider } from "./finnhub";
 import { FinnhubNewsProvider } from "./finnhub/news";
 import { MockProvider } from "./mock";
+import { MockFundamentalsProvider } from "./mock/fundamentals";
 import { MockNewsProvider } from "./mock/news";
 import { RssNewsProvider } from "./rss";
 import type {
+  CalendarProvider,
   FilingsProvider,
+  FundamentalsProvider,
   NewsProvider,
   ProfileProvider,
   QuoteProvider,
@@ -20,8 +23,11 @@ import type {
  * Nothing downstream imports an adapter directly.
  */
 
+/** EDGAR serves three capabilities at once; the alias keeps that legible. */
+type EdgarCapabilities = FilingsProvider & ProfileProvider & FundamentalsProvider;
+
 let quoteProvider: QuoteProvider | null = null;
-let filingsProvider: (FilingsProvider & ProfileProvider) | null = null;
+let filingsProvider: EdgarCapabilities | null = null;
 
 export function getQuoteProvider(): QuoteProvider {
   if (quoteProvider) return quoteProvider;
@@ -40,8 +46,11 @@ export function getQuoteProvider(): QuoteProvider {
   return quoteProvider;
 }
 
-/** EDGAR is both our filings source and our zero-config profile source. */
-export function getFilingsProvider(): FilingsProvider & ProfileProvider {
+/**
+ * EDGAR is our filings source, our zero-config profile source, and our
+ * fundamentals source. One adapter, three capabilities, no API key.
+ */
+export function getFilingsProvider(): EdgarCapabilities {
   if (!filingsProvider) {
     filingsProvider = new EdgarProvider(getEnv().SEC_USER_AGENT);
   }
@@ -95,9 +104,52 @@ export function getNewsProviders(): NewsProvider[] {
   return newsProviders;
 }
 
+let fundamentalsProviders: FundamentalsProvider[] | null = null;
+let calendarProviders: CalendarProvider[] | null = null;
+
+/**
+ * Fundamentals sources, in priority order.
+ *
+ * EDGAR first: it is free, authoritative, needs no key, and reports what the
+ * company actually filed. The mock exists so the company page is populated
+ * with no configuration at all — without it, a fresh install shows an empty
+ * page and looks broken.
+ */
+export function getFundamentalsProviders(): FundamentalsProvider[] {
+  if (fundamentalsProviders) return fundamentalsProviders;
+
+  const env = getEnv();
+  const built: FundamentalsProvider[] = [];
+
+  if (env.NEWS_PROVIDERS.includes("mock")) {
+    built.push(new MockFundamentalsProvider());
+  } else {
+    built.push(getFilingsProvider());
+  }
+
+  fundamentalsProviders = built;
+  return fundamentalsProviders;
+}
+
+/** Earnings and dividend calendar sources. */
+export function getCalendarProviders(): CalendarProvider[] {
+  if (calendarProviders) return calendarProviders;
+
+  const env = getEnv();
+  // Only the mock supplies a calendar today; a real one lands with a paid
+  // plan. Returning an empty list degrades the events strip rather than
+  // failing the ingest.
+  calendarProviders = env.NEWS_PROVIDERS.includes("mock")
+    ? [new MockFundamentalsProvider()]
+    : [];
+  return calendarProviders;
+}
+
 /** Test seam. */
 export function resetProviderCache(): void {
   quoteProvider = null;
   filingsProvider = null;
   newsProviders = null;
+  fundamentalsProviders = null;
+  calendarProviders = null;
 }

@@ -8,6 +8,7 @@ export const valuation: ConceptSource[] = [
     term: "Shares outstanding",
     category,
     level: "beginner",
+    metrics: ["shares_outstanding"],
     oneLiner: "The total number of shares the company has issued and that are currently held.",
     body: `A company decides how many shares to divide itself into. That count is the shares outstanding, and it is the bridge between a share price and the value of the whole company.
 

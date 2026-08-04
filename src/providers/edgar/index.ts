@@ -5,8 +5,12 @@ import type {
   CompanyProfile,
   Filing,
   FilingsProvider,
+  FundamentalDatum,
+  FundamentalsProvider,
+  NewsTarget,
   ProfileProvider,
 } from "../types";
+import { extractFundamentals, type CompanyFacts } from "./xbrl";
 
 const PROVIDER = "edgar";
 const TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json";
@@ -61,7 +65,25 @@ export function padCik(cik: string | number): string {
   return String(cik).replace(/\D/g, "").padStart(10, "0");
 }
 
-export class EdgarProvider implements FilingsProvider, ProfileProvider {
+const COMPANY_FACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts";
+
+/**
+ * companyfacts is validated loosely on purpose.
+ *
+ * The document contains every tag a company has ever reported — thousands of
+ * them, with no fixed schema — and a strict shape would reject the whole
+ * response over one unexpected concept. Individual facts are validated as
+ * they are read in extractFundamentals instead.
+ */
+const companyFactsSchema = z.object({
+  cik: z.number().optional(),
+  entityName: z.string().optional(),
+  facts: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+});
+
+export class EdgarProvider
+  implements FilingsProvider, ProfileProvider, FundamentalsProvider
+{
   readonly name = PROVIDER;
 
   constructor(private readonly userAgent: string) {}
@@ -141,6 +163,45 @@ export class EdgarProvider implements FilingsProvider, ProfileProvider {
       limiter,
       timeoutMs: 20_000,
     });
+  }
+
+  /**
+   * Reported financial facts from SEC XBRL.
+   *
+   * Free, official, and needs no API key — the same reasoning that makes
+   * EDGAR the zero-config identity source in P0 applies to fundamentals.
+   */
+  async getFundamentals(target: NewsTarget): Promise<FundamentalDatum[]> {
+    const cik = await this.resolveCik(target.ticker);
+    if (!cik) return [];
+
+    /*
+     * This document is large — tens of megabytes for a long-lived filer,
+     * because it carries every fact the company has ever reported and there
+     * is no server-side filter. Hence the generous timeout. It only changes
+     * when a new filing lands, which is why fundamentals ingest runs daily
+     * rather than hourly.
+     */
+    const doc = (await fetchJson(
+      `${COMPANY_FACTS_BASE}/CIK${padCik(cik)}.json`,
+      {
+        provider: PROVIDER,
+        schema: companyFactsSchema,
+        headers: this.headers,
+        limiter,
+        timeoutMs: 60_000,
+      },
+    )) as CompanyFacts;
+
+    return extractFundamentals(doc).map((f) => ({
+      metricKey: f.metricKey,
+      periodEnd: f.periodEnd,
+      periodType: f.periodType,
+      value: f.value,
+      unit: f.unit,
+      filedAt: f.filedAt,
+      source: f.form ? `edgar:${f.form}` : "edgar",
+    }));
   }
 
   async getRecentFilings(cik: string, limit = 20): Promise<Filing[]> {

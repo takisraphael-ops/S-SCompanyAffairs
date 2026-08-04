@@ -348,9 +348,37 @@ Decisions taken during implementation:
 Not built here: the company page carries news only. Fundamentals, filings and
 the earnings calendar join it in P3.
 
-### P3 — Company detail
+### P3 — Company detail ✅ built
 Fundamentals ingest into the EAV table, metric → concept auto-linking, EDGAR
 filings poller with form-type plain-English mapping, earnings calendar.
+
+Decisions taken during implementation:
+
+- **EDGAR XBRL is the fundamentals source.** Free, official, no API key, and
+  it reports what the company actually filed — the same reasoning that made
+  EDGAR the zero-config identity source in P0.
+- **Only asserted facts are stored; everything else is derived on read.**
+  Margins, market cap, P/E, free cash flow and the balance-sheet ratios are
+  computed from stored facts plus the live price. A stored market cap is
+  stale the moment it is written, and a stored margin can silently disagree
+  with the revenue it came from after a restatement.
+- **Period type is decided by elapsed days, not by the `fp` field.** A 10-K
+  carries quarterly facts too, and nine-month cumulatives are discarded rather
+  than filed under a period they are not.
+- **Restatements overwrite.** The composite primary key means re-ingesting a
+  period updates it, and the most recently filed value wins.
+- **Each metric has an ordered list of candidate XBRL tags**, since companies
+  spell revenue at least three ways — but tags are never mixed for one metric,
+  because different tags can mean subtly different things.
+- **Form codes are translated.** Every filing row leads with what the form
+  actually is, and links to the concept where P1 explains it.
+- **Time-dependent display values are resolved in the service layer.** Reading
+  the clock during render is impure; "upcoming" and "days away" are settled
+  once, at the data layer.
+
+The P1 mechanism did its job here: adding the new metric keys to the registry
+made `concepts:coverage` fail until `assets`, `liabilities` and
+`shares_outstanding` were mapped to their concepts.
 
 ### P4 — Portfolio
 Transaction ledger, corporate-action handling, cost basis, realized and

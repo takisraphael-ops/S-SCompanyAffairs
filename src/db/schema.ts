@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -43,6 +44,28 @@ export const conceptLevel = pgEnum("concept_level", [
 ]);
 
 export const progressStatus = pgEnum("progress_status", ["seen", "understood"]);
+
+/**
+ * Reporting period a fact covers.
+ *
+ * Balance-sheet facts are instantaneous, but they are still filed as part of
+ * an annual or quarterly report, so they are tagged with that period and
+ * `period_end` carries the instant. `ttm` is reserved for trailing-twelve-month
+ * figures assembled from four quarters.
+ */
+export const periodType = pgEnum("period_type", [
+  "annual",
+  "quarterly",
+  "ttm",
+]);
+
+/** Scheduled or past company events. */
+export const eventKind = pgEnum("event_kind", [
+  "earnings",
+  "dividend",
+  "split",
+  "shareholder_meeting",
+]);
 
 /** What kind of outlet a story came from. Drives the source weight. */
 export const sourceKind = pgEnum("source_kind", [
@@ -203,6 +226,107 @@ export const ingestRuns = pgTable(
     error: text("error"),
   },
   (t) => [index("ingest_runs_job_started_idx").on(t.job, t.startedAt)],
+);
+
+/* ------------------------------------------------------------------ *
+ * Fundamentals, filings and events
+ * ------------------------------------------------------------------ */
+
+/**
+ * Reported financial facts, stored narrow.
+ *
+ * The EAV shape is what makes "explain every number" affordable
+ * (docs/PLAN.md §3): `metric_key` joins to `concept_metrics`, so a metric
+ * added to the ingest pipeline is explainable the moment its concept exists,
+ * with no schema migration and no UI change.
+ *
+ * Only facts a provider actually asserted are stored. Anything derivable —
+ * margins, market cap, P/E — is computed at read time from these plus the
+ * live price, so a derived figure can never go stale against its inputs.
+ */
+export const fundamentals = pgTable(
+  "fundamentals",
+  {
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    metricKey: text("metric_key").notNull(),
+    /** Period close, or the instant for balance-sheet facts. */
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    periodType: periodType("period_type").notNull(),
+    value: numeric("value", { precision: 30, scale: 6 }).notNull(),
+    /** "USD", "USD/shares", "shares". */
+    unit: text("unit").notNull().default("USD"),
+    /** Provider that asserted it, plus the form where relevant. */
+    source: text("source").notNull(),
+    /** When the filing that asserted this was submitted; latest wins. */
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Re-ingesting a period updates it rather than duplicating; restatements
+    // therefore overwrite the figure they restate.
+    primaryKey({
+      columns: [t.securityId, t.metricKey, t.periodEnd, t.periodType],
+    }),
+    index("fundamentals_security_metric_idx").on(t.securityId, t.metricKey),
+  ],
+);
+
+export const filings = pgTable(
+  "filings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    cik: text("cik").notNull(),
+    accessionNo: text("accession_no").notNull(),
+    /** "10-K", "8-K", "4", … as SEC reports it. */
+    formType: text("form_type").notNull(),
+    filedAt: timestamp("filed_at", { withTimezone: true }).notNull(),
+    url: text("url").notNull(),
+    /** Description SEC supplies for the primary document, when present. */
+    description: text("description"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // An accession number identifies a submission uniquely and for all time.
+    uniqueIndex("filings_accession_key").on(t.accessionNo),
+    index("filings_security_filed_idx").on(t.securityId, t.filedAt),
+  ],
+);
+
+export const companyEvents = pgTable(
+  "company_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    kind: eventKind("kind").notNull(),
+    /** When it is expected, or happened. */
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    /** Free-form detail: EPS estimate, dividend amount, split ratio. */
+    payload: jsonb("payload"),
+    source: text("source").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One event of a kind per company per day; re-ingest updates the details.
+    uniqueIndex("company_events_unique").on(
+      t.securityId,
+      t.kind,
+      t.scheduledAt,
+    ),
+    index("company_events_scheduled_idx").on(t.scheduledAt),
+  ],
 );
 
 /* ------------------------------------------------------------------ *
@@ -421,6 +545,12 @@ export type WatchlistItem = typeof watchlistItems.$inferSelect;
 export type PriceBar = typeof priceBars.$inferSelect;
 export type QuoteLatest = typeof quotesLatest.$inferSelect;
 export type IngestRun = typeof ingestRuns.$inferSelect;
+export type Fundamental = typeof fundamentals.$inferSelect;
+export type NewFundamental = typeof fundamentals.$inferInsert;
+export type Filing = typeof filings.$inferSelect;
+export type CompanyEvent = typeof companyEvents.$inferSelect;
+export type PeriodType = (typeof periodType.enumValues)[number];
+export type EventKind = (typeof eventKind.enumValues)[number];
 export type NewsSource = typeof newsSources.$inferSelect;
 export type Story = typeof stories.$inferSelect;
 export type Article = typeof articles.$inferSelect;

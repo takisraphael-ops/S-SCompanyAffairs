@@ -16,9 +16,10 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0, P1 and P2 are built.** Watchlist with quote ingest; the explanation
-engine (77 concepts, hover-to-explain, prerequisite graph); and news with
-story clustering, entity resolution and materiality ranking. See
+**P0 through P3 are built.** Watchlist with quote ingest; the explanation
+engine (77 concepts, hover-to-explain, prerequisite graph); news with story
+clustering, entity resolution and materiality ranking; and company detail with
+fundamentals from SEC XBRL, translated filings and an earnings calendar. See
 **[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
 
 | Phase | What | Status |
@@ -26,7 +27,7 @@ story clustering, entity resolution and materiality ranking. See
 | P0 | Foundation: watchlist, quotes, ingest, cron | **done** |
 | P1 | Explanation engine (concepts, `<Term>`, prerequisite DAG) | **done** |
 | P2 | News ingest, dedup, entity resolution, materiality | **done** |
-| P3 | Fundamentals, EDGAR filings, earnings calendar | next |
+| P3 | Fundamentals, EDGAR filings, earnings calendar | **done** |
 | P4 | Portfolio ledger and P&L | planned |
 | P5 | AI summaries and contextual explanations | planned |
 | P6 | Alerts and morning digest | planned |
@@ -38,10 +39,13 @@ Requires Node 20+ and a PostgreSQL database.
 ```bash
 npm install
 cp .env.example .env.local     # then edit DATABASE_URL
-npm run db:migrate
-npm run concepts:seed          # load the 77 explanations into the database
+npm run setup                  # migrate, then load the explanations
 npm run dev                    # http://localhost:3000
 ```
+
+`npm run setup` is migrate plus concept seed. Re-run it after changing
+anything in `src/content/concepts` — the database is the read path, so
+unseeded content means figures render without their explanations.
 
 It runs with **no API keys**. `QUOTE_PROVIDER=mock` (the default) generates
 deterministic fake prices, and company identity comes from SEC EDGAR, which
@@ -71,10 +75,12 @@ history builds itself from the day you add a ticker.
 | `npm run smoke` | Round-trip check against a real database — **writes to `DATABASE_URL`** |
 | `npm run ingest` | Run the quote ingest once from the CLI |
 | `npm run ingest:news` | Run the news ingest; prints the dedup and match-method breakdown |
+| `npm run ingest:company` | Pull fundamentals, filings and calendar events |
 | `npm run concepts:seed` | Reconcile the database with the authored concepts |
 | `npm run concepts:coverage` | Fail if a displayed metric has no explanation |
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations |
+| `npm run setup` | Migrate and seed concepts in one step |
 | `npm run lint` / `npm run typecheck` | Static checks |
 
 ## Architecture in one paragraph
@@ -123,6 +129,20 @@ otherwise merge, silently hiding one.
 listicle, and because it multiplies, a trusted outlet does not launder a
 listicle. The feed stays chronological — reordering by score hides what is new
 — and low-signal items collapse behind a disclosure instead.
+
+## Where the numbers come from
+
+Fundamentals are extracted from **SEC XBRL company facts** — free, official,
+no API key. Only figures a company actually filed are stored. Everything
+derivable — margins, market cap, P/E, free cash flow, the balance-sheet ratios
+— is computed at read time from those facts plus the live price, so a derived
+figure can never disagree with the numbers printed beside it.
+
+Two details that are easy to get wrong: period type is decided by *elapsed
+days* rather than the filing's own label, because a 10-K carries quarterly
+facts too and nine-month cumulatives would otherwise be filed as quarters; and
+each metric has an ordered list of candidate XBRL tags, because companies
+spell revenue at least three different ways.
 
 ## How the explanations work
 
