@@ -261,10 +261,29 @@ public multi-user version means paid plans and a different conversation.
 
 Each phase leaves the app in a state you'd actually open.
 
-### P0 — Foundation
+### P0 — Foundation ✅ built
 Next.js scaffold, Postgres + migrations, provider abstraction with Finnhub +
 EDGAR adapters, cron wiring. Watchlist CRUD, last close and day change.
 *Proves the ingest → DB → UI path end to end.*
+
+Decisions taken during implementation, beyond what was planned:
+
+- **A `mock` quote provider ships alongside the real ones.** The app runs with
+  zero API keys, and its output is deterministic per ticker per day — random
+  numbers that changed on every reload would look like a bug and would mask
+  real caching and ingest faults.
+- **EDGAR doubles as the zero-config identity source.** It needs no API key, so
+  company name, CIK, exchange and SIC description resolve before any paid
+  provider is configured. Finnhub, when enabled, only fills gaps.
+- **History accumulates forward from quotes.** Free Finnhub plans no longer
+  include `/stock/candle`; that 403 is mapped to a distinct `unsupported`
+  error code and the ingest writes each quote as that day's bar instead of
+  failing. History therefore builds from the day a ticker is added.
+- **Mutations use Server Actions, not REST routes.** Only the cron endpoint
+  needs to be callable by an external scheduler, and it is the only route with
+  a shared-secret guard.
+- **`ingest_runs` records every job execution.** Cron runs unattended; without
+  it the sole symptom of a silently failing job is quietly stale prices.
 
 ### P1 — Explanation engine
 `concepts` schema, MDX authoring pipeline, `<Term>` component, user-level
