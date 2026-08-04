@@ -50,6 +50,13 @@
       "when": 1785851733644,
       "tag": "0006_real_big_bertha",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785854523889,
+      "tag": "0007_busy_wolverine",
+      "breakpoints": true
     }
   ]
 }

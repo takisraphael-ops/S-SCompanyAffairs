@@ -51,6 +51,15 @@ export const KINDS: Record<GenerationKind, KindSpec> = {
    * configured here, or every answer would truncate.
    */
   article_classification: { tier: "fast", maxTokens: 2000, version: 1 },
+
+  /*
+   * Once a day, over a list the digest has already assembled: which two or
+   * three of a dozen items actually matter. That is a judgement about
+   * relative importance rather than a paraphrase, and it is the first thing
+   * read each morning, so it goes to the capable model — at one call a day
+   * it is the cheapest kind here regardless.
+   */
+  digest_summary: { tier: "careful", maxTokens: 8000, version: 1 },
 };
 
 export function specFor(kind: GenerationKind): KindSpec {

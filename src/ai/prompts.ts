@@ -285,6 +285,53 @@ export function metricExplanationPrompt(
 }
 
 /* ------------------------------------------------------------------ *
+ * Morning digest opener
+ * ------------------------------------------------------------------ */
+
+export interface DigestSummaryInput {
+  /** The morning it covers, as a date. */
+  forDate: Date;
+  /** The assembled digest, exactly as the reader will see it below. */
+  markdown: string;
+  itemCount: number;
+}
+
+/**
+ * The two sentences at the top of the digest.
+ *
+ * The one job a model is unambiguously better at here: deciding which two of
+ * fourteen items matter. Everything below it is already assembled, sorted and
+ * linked by code — this does not restate the list, it says what to look at
+ * first, which is a judgement about relative importance and not something a
+ * sort order can express.
+ */
+const DIGEST_SYSTEM = [
+  HOUSE_RULES,
+  "",
+  "You are writing the opening of a morning digest, above a list the reader",
+  "is about to read in full. Two or three sentences.",
+  "",
+  "Say what deserves attention first and why, in the order you would look at",
+  "it. Do not restate the list, do not enumerate everything, and do not",
+  "introduce yourself or the digest. If nothing in it is consequential, say",
+  "that plainly — a quiet morning is useful information and padding it out is",
+  "how a digest becomes something nobody reads.",
+].join("\n");
+
+export function digestSummaryPrompt(input: DigestSummaryInput): PromptSpec {
+  return {
+    kind: "digest_summary",
+    subject: `Digest for ${isoDate(input.forDate)}`,
+    system: DIGEST_SYSTEM,
+    user: [
+      `Morning of ${isoDate(input.forDate)}. ${input.itemCount} items.`,
+      "",
+      input.markdown,
+    ].join("\n"),
+  };
+}
+
+/* ------------------------------------------------------------------ *
  * Article classification
  * ------------------------------------------------------------------ */
 

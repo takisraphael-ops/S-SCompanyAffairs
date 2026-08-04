@@ -16,6 +16,9 @@ import type { PromptSpec } from "@/ai/prompts";
 import { closeDb, getDb } from "@/db";
 import {
   aiGenerations,
+  alertEvents,
+  alertRules,
+  alertStates,
   fundamentals,
   priceBars,
   quotesLatest,
@@ -68,6 +71,12 @@ async function teardown() {
     await db.delete(aiGenerations).where(
       inArray(
         aiGenerations.securityId,
+        ids.map((r) => r.id),
+      ),
+    );
+    await db.delete(alertRules).where(
+      inArray(
+        alertRules.securityId,
         ids.map((r) => r.id),
       ),
     );
@@ -236,6 +245,52 @@ async function main() {
     .from(aiGenerations)
     .where(eq(aiGenerations.securityId, added.id));
   check("generated text is attributed to its company", beforeCascade[0]?.n === 1);
+
+  // --- alert dedupe --------------------------------------------------------
+  // The index that makes a second firing impossible even when the logic above
+  // it is wrong or two cron runs overlap. Asserted against the database
+  // because that is where the guarantee lives.
+  const [rule] = await db
+    .insert(alertRules)
+    .values({
+      securityId: added.id,
+      kind: "price_above",
+      params: { threshold: 1 },
+    })
+    .returning({ id: alertRules.id });
+
+  const fire = () =>
+    db
+      .insert(alertEvents)
+      .values({
+        ruleId: rule!.id,
+        securityId: added.id,
+        dedupeKey: "above:1:2024-01-01",
+        title: "smoke",
+        body: "smoke",
+      })
+      .onConflictDoNothing({
+        target: [alertEvents.ruleId, alertEvents.dedupeKey],
+      })
+      .returning({ id: alertEvents.id });
+
+  check("a firing is recorded once", (await fire()).length === 1);
+  check("and the same firing again is a no-op", (await fire()).length === 0);
+
+  // Arming is per company, so a watchlist-wide rule can be waiting on one
+  // ticker while it has already fired for another.
+  await db
+    .insert(alertStates)
+    .values({ ruleId: rule!.id, securityId: added.id, armed: false })
+    .onConflictDoUpdate({
+      target: [alertStates.ruleId, alertStates.securityId],
+      set: { armed: false },
+    });
+  const state = await db
+    .select()
+    .from(alertStates)
+    .where(eq(alertStates.ruleId, rule!.id));
+  check("arming state is keyed by rule and company", state.length === 1 && state[0]?.armed === false);
 
   // --- portfolio ledger ---------------------------------------------------
   await recordTransaction({

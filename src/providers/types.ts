@@ -195,3 +195,30 @@ export interface LlmProvider {
   readonly name: string;
   complete(req: LlmRequest): Promise<LlmResult>;
 }
+
+export interface Notification {
+  subject: string;
+  /** Markdown. Adapters that need HTML render it themselves. */
+  body: string;
+  /**
+   * Stable identifier for this message.
+   *
+   * Sends are retried on a timeout, and a timed-out send may well have
+   * arrived. Adapters pass this to the provider's idempotency mechanism so a
+   * retry cannot deliver a second copy.
+   */
+  idempotencyKey: string;
+}
+
+/**
+ * Delivery of something the user asked to be told about.
+ *
+ * `send` resolving means the channel accepted the message, not that anyone
+ * read it — that is as much as any of these can promise. Failure throws a
+ * ProviderError, and the caller records it against the row rather than
+ * retrying forever: an alert that could not be emailed is still in the inbox.
+ */
+export interface Notifier {
+  readonly name: string;
+  send(message: Notification): Promise<void>;
+}

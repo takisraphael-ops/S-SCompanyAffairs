@@ -203,8 +203,11 @@ positions_snapshot(account_id, security_id, as_of, quantity,
 corporate_actions(security_id, kind, ex_date, ratio, amount)
 
 -- Alerts
-alert_rules(id, security_id, kind, params jsonb, channel, enabled)
-alert_events(id, rule_id, fired_at, payload jsonb, delivered_at)
+alert_rules(id, user_id, security_id, kind, params jsonb, channel, enabled)
+alert_states(rule_id, security_id, armed, last_fired_at)  -- edge triggering
+alert_events(id, rule_id, security_id, dedupe_key, title, body, url,
+             payload jsonb, fired_at, read_at, delivered_at, delivery_error)
+digests(id, for_date, body, summary, summary_model, item_count, delivered_at)
 ```
 
 Notes on specific choices:
@@ -480,9 +483,66 @@ pages and would have to be fetched and chunked — a phase of its own, not a
 paragraph. The summaries describe what a form is for and what filing one
 ordinarily indicates, and both the prompt and the UI say so.
 
-### P6 — Alerts and digest
+### P6 — Alerts and digest ✅ built
 Rules engine (price thresholds, new filings, keyword hits), morning email
 digest, delivery log.
+
+Decisions taken during implementation:
+
+- **Alerts are edge-triggered, and that is the whole phase.** "AAPL above
+  $200" is true on every run once it is true at all; a job that fires on the
+  condition rather than on the change into it sends a notification every
+  fifteen minutes until the price falls back. `alert_states` records whether
+  each rule is armed, per company, and a rule re-arms only when its condition
+  stops holding. Everything else here is comparatively mechanical.
+- **Arming is per rule *and* company**, not per rule. A watchlist-wide rule
+  watches several companies and has to be able to fire for one while still
+  waiting on another.
+- **Three independent guards, deliberately.** Arming stops the second firing;
+  a dedupe key on the row that caused it stops the second firing of an event
+  rule; and a unique index on (rule, key) makes a duplicate impossible even
+  when the logic above is wrong or two cron runs overlap. The first two are
+  logic and can be got wrong; the third cannot.
+- **A threshold crossed twice in one day is one alert.** The dedupe key
+  carries the date, so where arming and the key disagree the key wins. A
+  price that crosses $200, dips and crosses again before the close is one
+  piece of news, and the second notification is the kind that gets alerting
+  switched off. Day *moves* are the exception — the direction is in the key,
+  so a 6% fall and a 6% recovery are two things that happened.
+- **A rule watches forward, not backward.** Creating a broad rule against a
+  database holding a month of news would fire sixty times at once. Rules fire
+  only for what arrives after they are written, and the UI says so, since it
+  is otherwise a genuine surprise. `ALERT_LOOKBACK_DAYS` bounds the opposite
+  case: a rule written a fortnight ago whose job has not run since.
+- **An unfiltered filing rule means "material", not "everything".** Ten
+  companies file dozens of insider Form 4s a month, and an alert firing on
+  all of them is one nobody reads. Same judgement, same function
+  (`isMaterialForm`), as the filings list.
+- **The inbox is the primary channel and email is optional.** A rule set to
+  `inbox` is delivered by being written to `alert_events`, which the page
+  reads — nothing leaves the machine, and no key is needed. Email failures
+  are recorded against the row rather than thrown: the alert already
+  succeeded, and losing it because a mail provider was down is the worse of
+  the two failures.
+- **The digest is stored as sent, not reassembled on read.** "What happened
+  overnight" is a question about a moment; rebuilding Tuesday's answer on
+  Thursday from a database that has moved on would quietly show something
+  other than what was delivered. Its model-written opener is copied into the
+  row for the same reason — unlike a filing summary, which is a view of the
+  current best text and so is joined.
+- **The digest suppresses what it has already said.** An 8-K that fired a
+  rule and also appeared in the filings query is one event; the alert section
+  claims it and the generic sections skip it. Same principle as story
+  clustering, applied one level up.
+- **The model writes only the opening two sentences**, and only when one is
+  configured. Deciding which two of fourteen items matter is a judgement a
+  sort order cannot express; assembling, ordering and linking the items is
+  code. A failed summary still sends the digest — the AI layer is not a
+  dependency of the alerting layer.
+
+Not built here: SMS or push channels, per-rule quiet hours, and alerts on
+portfolio positions (a position down 10% since purchase) — the ledger makes
+those straightforward but they are a different question from company news.
 
 ---
 

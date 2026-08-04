@@ -84,6 +84,27 @@ const envSchema = z
       .min(1)
       .default("S&S Company Affairs (set SEC_USER_AGENT to name + email)"),
 
+    /**
+     * Where alerts and the digest are emailed from. `console` prints them,
+     * which is the default: the alerts page is the primary channel and email
+     * is the optional one, so nothing about this feature needs a key.
+     */
+    EMAIL_PROVIDER: z.enum(["console", "resend"]).default("console"),
+    RESEND_API_KEY: z.string().optional(),
+    /** Must be a verified sender on the Resend account. */
+    EMAIL_FROM: z.string().optional(),
+    EMAIL_TO: z.string().optional(),
+
+    /**
+     * How far back a newly created rule looks on its first evaluation.
+     *
+     * Without a bound, a "material news" rule created against a database
+     * holding a month of articles would fire a hundred times at once and be
+     * deleted immediately. A rule never fires for anything that happened
+     * before it existed; this bounds the other end.
+     */
+    ALERT_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(30).default(3),
+
     /** Shared secret required by /api/cron/* routes. */
     CRON_SECRET: z.string().optional(),
 
@@ -112,6 +133,24 @@ const envSchema = z
         path: ["ANTHROPIC_API_KEY"],
         message: "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic",
       });
+    }
+    if (val.EMAIL_PROVIDER === "resend") {
+      // All three, together: a key without addresses cannot send, and
+      // discovering that at 7am when the digest silently fails is worse than
+      // discovering it at startup.
+      for (const [key, value] of [
+        ["RESEND_API_KEY", val.RESEND_API_KEY],
+        ["EMAIL_FROM", val.EMAIL_FROM],
+        ["EMAIL_TO", val.EMAIL_TO],
+      ] as const) {
+        if (!value) {
+          ctx.addIssue({
+            code: "custom",
+            path: [key],
+            message: `${key} is required when EMAIL_PROVIDER=resend`,
+          });
+        }
+      }
     }
     if (val.NODE_ENV === "production" && !val.CRON_SECRET) {
       ctx.addIssue({

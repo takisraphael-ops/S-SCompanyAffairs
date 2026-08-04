@@ -7,6 +7,8 @@ import { MockProvider } from "./mock";
 import { MockFundamentalsProvider } from "./mock/fundamentals";
 import { MockLlmProvider } from "./mock/llm";
 import { MockNewsProvider } from "./mock/news";
+import { ConsoleNotifier } from "./mock/notifier";
+import { ResendNotifier } from "./resend";
 import { RssNewsProvider } from "./rss";
 import type {
   CalendarProvider,
@@ -14,6 +16,7 @@ import type {
   FundamentalsProvider,
   LlmProvider,
   NewsProvider,
+  Notifier,
   ProfileProvider,
   QuoteProvider,
 } from "./types";
@@ -148,6 +151,42 @@ export function getCalendarProviders(): CalendarProvider[] {
   return calendarProviders;
 }
 
+let emailNotifier: Notifier | null = null;
+
+/**
+ * The email channel.
+ *
+ * Falls back to printing rather than failing when nothing is configured, so a
+ * rule set to `email` on an install with no key still produces a visible
+ * record instead of disappearing. The caller records which notifier accepted
+ * a message, so "printed to a log" is never mistaken for "sent".
+ */
+export function getEmailNotifier(): Notifier {
+  if (emailNotifier) return emailNotifier;
+
+  const env = getEnv();
+  switch (env.EMAIL_PROVIDER) {
+    case "resend":
+      // Presence of all three is enforced by the env schema.
+      emailNotifier = new ResendNotifier(
+        env.RESEND_API_KEY!,
+        env.EMAIL_FROM!,
+        env.EMAIL_TO!,
+      );
+      break;
+    case "console":
+    default:
+      emailNotifier = new ConsoleNotifier();
+      break;
+  }
+  return emailNotifier;
+}
+
+/** Whether email will actually leave the machine. Drives UI copy. */
+export function isEmailConfigured(): boolean {
+  return getEnv().EMAIL_PROVIDER !== "console";
+}
+
 let llmProvider: LlmProvider | null = null;
 
 /**
@@ -190,4 +229,5 @@ export function resetProviderCache(): void {
   fundamentalsProviders = null;
   calendarProviders = null;
   llmProvider = null;
+  emailNotifier = null;
 }

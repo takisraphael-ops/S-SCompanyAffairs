@@ -19,7 +19,9 @@
     "concepts:coverage": "tsx scripts/concept-coverage.ts",
     "ingest:news": "tsx scripts/ingest-news.ts",
     "ingest:company": "tsx scripts/ingest-company.ts",
-    "ingest:ai": "tsx scripts/ingest-ai.ts"
+    "ingest:ai": "tsx scripts/ingest-ai.ts",
+    "alerts": "tsx scripts/alerts.ts",
+    "digest": "tsx scripts/digest.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

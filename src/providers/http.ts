@@ -12,6 +12,15 @@ export interface FetchJsonOptions<T> {
   retries?: number;
   limiter?: RateLimiter;
   signal?: AbortSignal;
+  /**
+   * Defaults to GET. Anything else is retried too, so a caller using POST for
+   * something with a side effect — sending an email, say — must make the
+   * request idempotent at the far end. Resend takes an `Idempotency-Key`
+   * header for exactly this; see src/providers/resend.
+   */
+  method?: "GET" | "POST";
+  /** JSON-serialisable body. Sets content-type when present. */
+  body?: unknown;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -70,7 +79,15 @@ async function attemptOnce<T>(
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { accept: "application/json", ...headers },
+      method: opts.method ?? "GET",
+      headers: {
+        accept: "application/json",
+        ...(opts.body === undefined
+          ? {}
+          : { "content-type": "application/json" }),
+        ...headers,
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       signal,
       cache: "no-store",
     });

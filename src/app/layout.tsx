@@ -1,11 +1,45 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { countUnread } from "@/services/alerts";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "S&S Company Affairs",
   description: "A personal stock watchlist that explains itself.",
 };
+
+const NAV_LINK =
+  "text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400";
+
+/**
+ * Unread count beside the alerts link.
+ *
+ * Read on every page, which is the point — an alerting feature that only
+ * tells you something when you visit its own page is one you forget exists.
+ * Kept to a count rather than a preview: the number is the signal, and
+ * anything richer in a header competes with the page.
+ *
+ * Failure here degrades to no badge rather than an error page. The header is
+ * not worth taking the site down for, and an empty database during setup is
+ * the most likely cause.
+ */
+async function AlertsLink() {
+  const unread = await countUnread().catch(() => 0);
+
+  return (
+    <Link href="/alerts" className={`${NAV_LINK} inline-flex items-center gap-1.5`}>
+      Alerts
+      {unread > 0 && (
+        <span
+          className="tnum rounded-full bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white dark:bg-white dark:text-neutral-900"
+          aria-label={`${unread} unread`}
+        >
+          {unread > 99 ? "99+" : unread}
+        </span>
+      )}
+    </Link>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -23,29 +57,21 @@ export default function RootLayout({
                 A personal stock watchlist that explains itself.
               </p>
             </div>
-            <nav className="flex items-center gap-4 text-sm">
-              <Link
-                href="/"
-                className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
-              >
+            <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <Link href="/" className={NAV_LINK}>
                 Watchlist
               </Link>
-              <Link
-                href="/news"
-                className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
-              >
+              <Link href="/news" className={NAV_LINK}>
                 News
               </Link>
-              <Link
-                href="/portfolio"
-                className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
-              >
+              <Link href="/portfolio" className={NAV_LINK}>
                 Portfolio
               </Link>
-              <Link
-                href="/learn"
-                className="text-neutral-600 underline-offset-4 hover:underline dark:text-neutral-400"
-              >
+              <AlertsLink />
+              <Link href="/digest" className={NAV_LINK}>
+                Digest
+              </Link>
+              <Link href="/learn" className={NAV_LINK}>
                 Learn
               </Link>
             </nav>

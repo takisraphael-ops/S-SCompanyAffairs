@@ -16,14 +16,14 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0 through P5 are built.** Watchlist with quote ingest; the explanation
+**All six phases are built.** Watchlist with quote ingest; the explanation
 engine (79 concepts, hover-to-explain, prerequisite graph); news with story
 clustering, entity resolution and materiality ranking; company detail with
 fundamentals from SEC XBRL, translated filings and an earnings calendar; a
-portfolio ledger with exact-decimal cost basis and split handling; and an AI
-layer that summarises story clusters, translates filings and explains a
-company's own figures on request. See **[docs/PLAN.md](docs/PLAN.md)** for the
-architecture and phase order.
+portfolio ledger with exact-decimal cost basis and split handling; an AI layer
+that summarises story clusters, translates filings and explains a company's own
+figures on request; and alerts with a morning digest. See
+**[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
 
 | Phase | What | Status |
 |---|---|---|
@@ -33,7 +33,7 @@ architecture and phase order.
 | P3 | Fundamentals, EDGAR filings, earnings calendar | **done** |
 | P4 | Portfolio ledger and P&L | **done** |
 | P5 | AI summaries and contextual explanations | **done** |
-| P6 | Alerts and morning digest | planned |
+| P6 | Alerts and morning digest | **done** |
 
 ## Quick start
 
@@ -89,6 +89,22 @@ explaining a company's figures in context. Override either with
 `ANTHROPIC_FAST_MODEL` and `ANTHROPIC_MODEL`. `AI_MAX_GENERATIONS_PER_RUN`
 (default 25) bounds what one run can spend; each run reports its token usage.
 
+### Getting alerts by email
+
+Alerts work with no configuration — a rule delivered to `inbox` is written to
+the database and shown on `/alerts`. For email, get a key at
+[resend.com](https://resend.com) (3,000 messages a month free) and set:
+
+```
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=your_key
+EMAIL_FROM=alerts@your-verified-domain.com
+EMAIL_TO=you@example.com
+```
+
+Without it, `EMAIL_PROVIDER=console` prints what would have been sent to the
+job log rather than dropping it silently.
+
 ## Commands
 
 | Command | What it does |
@@ -101,6 +117,8 @@ explaining a company's figures in context. Override either with
 | `npm run ingest:news` | Run the news ingest; prints the dedup and match-method breakdown |
 | `npm run ingest:company` | Pull fundamentals, filings and calendar events |
 | `npm run ingest:ai` | Write the summaries that are missing or stale; prints tokens spent |
+| `npm run alerts` | Evaluate every enabled alert rule once |
+| `npm run digest` | Build this morning's digest (`-- --no-send` to skip email) |
 | `npm run concepts:seed` | Reconcile the database with the authored concepts |
 | `npm run concepts:coverage` | Fail if a displayed metric has no explanation |
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
@@ -120,13 +138,15 @@ a rewrite. See [docs/PLAN.md](docs/PLAN.md) §2.
 
 ```
 src/
-  providers/     adapters (finnhub, edgar, anthropic, mock) behind capability interfaces
+  providers/     adapters (finnhub, edgar, anthropic, resend, mock) behind capability interfaces
   ingest/        scheduled jobs that write to the database
   ai/            prompts, generation cache, subject builders
+  alerts/        rule definitions, evaluation, digest assembly
+  news/          entity resolution, clustering, materiality
   services/      database reads and writes used by the UI
   content/       authored concept explanations + validation
   db/            drizzle schema and migrations
-  app/           routes, server actions, cron endpoint
+  app/           routes, server actions, cron endpoints
 ```
 
 ## How the portfolio works
@@ -248,13 +268,48 @@ what they could not name, one word from a closed list, rejected rather than
 coerced if it answers anything else. And it does not write to the ledger:
 nothing a model produces changes a number.
 
+## How the alerts avoid becoming noise
+
+An alerting feature fails in one specific way: it tells you the same thing
+repeatedly until you turn it off. "AAPL above $200" is true on every run once
+it is true at all, and a job that fires on the *condition* rather than on the
+*change into it* sends a notification every fifteen minutes for as long as the
+price stays there. Three mechanisms sit against that.
+
+**Rules are edge-triggered.** A rule fires when it enters its condition and
+re-arms only when the condition stops holding. The armed bit is stored per rule
+*and* per company, because a watchlist-wide rule has to be able to fire for
+Apple while it is still waiting on Microsoft.
+
+**Every firing carries a dedupe key**, and there is a unique index on it. For
+an event rule the key is the thing that triggered it — a filing can fire a rule
+once and never again. For a threshold it is the level and the day, so a price
+that crosses $200, dips and crosses again before the close is one alert rather
+than two. Day *moves* are the exception: the direction is in the key, so a 6%
+fall and a 6% recovery are correctly two things that happened.
+
+The first two are logic and can be wrong. The index cannot, which is why it is
+there as well.
+
+**A rule watches forward.** It fires only for what arrives after you write it,
+so creating a broad rule against a month of stored news does not produce sixty
+notifications at once. `ALERT_LOOKBACK_DAYS` bounds the opposite case, where the
+job has not run for a fortnight.
+
+The morning digest applies the same judgement one level up: it lists material
+forms only, collapses stories the way the feed does, and drops anything an
+alert already reported — the same 8-K arriving as both "your rule fired" and
+"a filing appeared" is one event.
+
 ## Scheduling
 
-`vercel.json` runs four jobs: quotes every 30 minutes during US market hours on
-weekdays, news every two hours, the AI pass 45 minutes after it, and company
-data daily. Every route requires `Authorization: Bearer $CRON_SECRET`;
+`vercel.json` runs six jobs: quotes every 30 minutes during US market hours on
+weekdays, news every two hours, the AI pass 45 minutes after it, alerts every
+15 minutes while the market is open, company data daily, and the digest each
+weekday morning. Every route requires `Authorization: Bearer $CRON_SECRET`;
 `CRON_SECRET` is mandatory in production, or the endpoint would let anyone burn
-your provider quota — which now includes your model spend.
+your provider quota — which now includes your model spend and your email
+allowance.
 
 Vercel's Hobby plan limits cron to one run per day. For intraday refresh, use
 the Pro plan or drive `npm run ingest` from any external scheduler.

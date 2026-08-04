@@ -74,6 +74,15 @@ function render(req: LlmRequest): string {
     case "article_classification":
       return "other";
 
+    case "digest_summary":
+      return [
+        "The items below are everything that happened to your watchlist since " +
+          "yesterday, already sorted with what you asked to be told about " +
+          "first. A configured model would say here which two or three of " +
+          "them are worth your attention and why.",
+        suffix,
+      ].join("\n\n");
+
     case "metric_explanation":
       return [
         `The figures for ${subject} are shown beside this note, and they are ` +

@@ -134,7 +134,25 @@ export const generationKind = pgEnum("generation_kind", [
   "filing_summary", // an SEC form, in plain English
   "metric_explanation", // why *this* company's number looks like this
   "article_classification", // the event type the keyword rules could not name
+  "digest_summary", // the morning's items, reduced to what matters
 ]);
+
+/**
+ * What an alert watches for. See src/alerts/rules.ts for what each one means
+ * and what parameters it takes.
+ */
+export const alertKind = pgEnum("alert_kind", [
+  "price_above",
+  "price_below",
+  "price_move", // day change beyond ±x%
+  "new_filing", // a filing appears, optionally of a given form type
+  "material_news", // an article scoring at or above a materiality threshold
+  "keyword", // a headline containing any of a set of terms
+  "earnings_soon", // scheduled earnings within n days
+]);
+
+/** Where a firing is delivered. `inbox` is the alerts page itself. */
+export const alertChannel = pgEnum("alert_channel", ["inbox", "email"]);
 
 /**
  * How an article came to be linked to a security. Recorded so precision can
@@ -741,6 +759,148 @@ export const aiGenerations = pgTable(
   ],
 );
 
+/* ------------------------------------------------------------------ *
+ * Alerts
+ *
+ * The whole difficulty here is not noticing that something happened — the
+ * ingest already stored it — but noticing it *once*. A rule like "AAPL above
+ * $200" is true on every run once it is true at all, and a job that fires on
+ * the condition rather than on the change to it produces one notification
+ * every thirty minutes until the price falls back. That is the failure mode
+ * that gets alerting turned off, so the schema is arranged against it from
+ * both directions: `alert_states` makes threshold rules edge-triggered, and a
+ * unique dedupe key on `alert_events` makes a second firing impossible even
+ * if the logic above it is wrong.
+ * ------------------------------------------------------------------ */
+
+export const alertRules = pgTable(
+  "alert_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull().default("local"),
+    /** Null means every company on the watchlist, including ones added later. */
+    securityId: uuid("security_id").references(() => securities.id, {
+      onDelete: "cascade",
+    }),
+    kind: alertKind("kind").notNull(),
+    /** Kind-specific settings; validated by a zod schema per kind. */
+    params: jsonb("params")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    channel: alertChannel("channel").notNull().default("inbox"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("alert_rules_enabled_idx").on(t.enabled)],
+);
+
+/**
+ * Whether a rule is ready to fire, per company.
+ *
+ * Per company rather than per rule because a watchlist-wide rule watches
+ * several: "tell me when anything moves more than 5%" has to be able to fire
+ * for Apple while it is still waiting for Microsoft to come back into range.
+ *
+ * `armed` goes false when a rule fires and true again when its condition
+ * stops holding. That single bit is the difference between an alert and a
+ * stream of duplicates, and it cannot be derived from the events table —
+ * a firing is recorded there, a return to normal is not.
+ */
+export const alertStates = pgTable(
+  "alert_states",
+  {
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => alertRules.id, { onDelete: "cascade" }),
+    securityId: uuid("security_id")
+      .notNull()
+      .references(() => securities.id, { onDelete: "cascade" }),
+    armed: boolean("armed").notNull().default(true),
+    lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.ruleId, t.securityId] })],
+);
+
+export const alertEvents = pgTable(
+  "alert_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => alertRules.id, { onDelete: "cascade" }),
+    securityId: uuid("security_id").references(() => securities.id, {
+      onDelete: "cascade",
+    }),
+    /**
+     * What this firing is about, in a form that repeats if and only if the
+     * firing would be a duplicate: a filing id, an article id, a threshold
+     * crossing plus the day it happened.
+     *
+     * The unique index below is the guard that actually holds. The engine
+     * decides not to fire twice; this makes it unable to, including when two
+     * cron runs overlap.
+     */
+    dedupeKey: text("dedupe_key").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Where to read more: the filing, the article, the company page. */
+    url: text("url"),
+    payload: jsonb("payload"),
+    firedAt: timestamp("fired_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    /** Null until a channel accepted it; see delivery_error for why not. */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    deliveryError: text("delivery_error"),
+  },
+  (t) => [
+    uniqueIndex("alert_events_dedupe_key").on(t.ruleId, t.dedupeKey),
+    index("alert_events_fired_idx").on(t.firedAt),
+    index("alert_events_unread_idx").on(t.readAt),
+  ],
+);
+
+/**
+ * A morning digest as it was sent.
+ *
+ * Stored rather than reassembled on demand, because "what happened overnight"
+ * is a question about a moment. Rebuilding Tuesday's digest on Thursday from
+ * a database that has moved on would produce a different answer and quietly
+ * misrepresent what was actually delivered.
+ */
+export const digests = pgTable(
+  "digests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** The morning it covers, as a UTC date. One per day. */
+    forDate: timestamp("for_date", { withTimezone: true }).notNull(),
+    /** Markdown. Rendered in the app and converted for email. */
+    body: text("body").notNull(),
+    /**
+     * Optional model-written opener, and which model wrote it.
+     *
+     * Copied here rather than joined from `ai_generations`, unlike filing
+     * summaries — and for the reason that distinguishes the two. A filing
+     * summary is a view of the current best text about a fixed document; a
+     * digest is a record of something that was sent. Regenerating the opener
+     * next week must not change what Tuesday's digest said.
+     */
+    summary: text("summary"),
+    summaryModel: text("summary_model"),
+    itemCount: integer("item_count").notNull().default(0),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    deliveryError: text("delivery_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("digests_for_date_key").on(t.forDate)],
+);
+
 export const userProgress = pgTable(
   "user_progress",
   {
@@ -790,3 +950,10 @@ export type UserProgress = typeof userProgress.$inferSelect;
 export type AiGeneration = typeof aiGenerations.$inferSelect;
 export type NewAiGeneration = typeof aiGenerations.$inferInsert;
 export type GenerationKind = (typeof generationKind.enumValues)[number];
+export type AlertRule = typeof alertRules.$inferSelect;
+export type NewAlertRule = typeof alertRules.$inferInsert;
+export type AlertEvent = typeof alertEvents.$inferSelect;
+export type AlertState = typeof alertStates.$inferSelect;
+export type AlertKind = (typeof alertKind.enumValues)[number];
+export type AlertChannel = (typeof alertChannel.enumValues)[number];
+export type Digest = typeof digests.$inferSelect;

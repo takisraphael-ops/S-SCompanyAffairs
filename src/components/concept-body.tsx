@@ -18,6 +18,20 @@ export function ConceptBody({ markdown }: { markdown: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p>{children}</p>,
+          /*
+            Tailwind's preflight resets heading sizes, so a markdown `##` is
+            body text until it is styled. Restored here rather than with a
+            prose plugin: two rules is cheaper than a dependency, and the
+            digest leans on them to be readable at all.
+          */
+          h2: ({ children }) => (
+            <h3 className="pt-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+              {children}
+            </h3>
+          ),
+          h3: ({ children }) => (
+            <h4 className="pt-1 text-[15px] font-semibold">{children}</h4>
+          ),
           strong: ({ children }) => (
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               {children}
