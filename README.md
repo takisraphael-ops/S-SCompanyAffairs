@@ -126,6 +126,12 @@ job log rather than dropping it silently.
 | `npm run setup` | Migrate and seed concepts in one step |
 | `npm run lint` / `npm run typecheck` | Static checks |
 
+CI runs all of these on every pull request (`.github/workflows/ci.yml`), in two
+jobs. The static half — typecheck, lint, tests, coverage, build — runs with no
+database and no configuration, which is the property that keeps a clean
+checkout runnable. The other half brings up Postgres 16, applies every
+migration from empty, and runs the smoke test against it.
+
 ## Architecture in one paragraph
 
 A scheduled job polls providers and writes into Postgres; the UI only ever
