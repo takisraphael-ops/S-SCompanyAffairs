@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { GeneratedNote } from "@/components/generated-note";
 import { formatRelativeTime } from "@/lib/format";
+import { getGeneration } from "@/services/ai";
 import { listStoryArticles } from "@/services/news";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,10 @@ export default async function StoryPage({ params }: Props) {
   // so a bad link 404s rather than erroring on a cast.
   if (!UUID_RE.test(id)) notFound();
 
-  const articles = await listStoryArticles(id);
+  const [articles, summary] = await Promise.all([
+    listStoryArticles(id),
+    getGeneration("story_summary", id),
+  ]);
   if (articles.length === 0) notFound();
 
   return (
@@ -45,6 +50,19 @@ export default async function StoryPage({ params }: Props) {
           order they were ranked.
         </p>
       </header>
+
+      {summary && (
+        <section className="mb-8">
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            What these say
+          </h3>
+          <GeneratedNote body={summary.body} model={summary.model} />
+          <p className="mt-2 text-xs text-neutral-400">
+            Written from the headlines and snippets below, not from the
+            articles themselves.
+          </p>
+        </section>
+      )}
 
       <ol className="space-y-4">
         {articles.map((a, i) => (

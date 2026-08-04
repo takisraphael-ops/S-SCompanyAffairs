@@ -18,9 +18,11 @@
     "concepts:seed": "tsx scripts/seed-concepts.ts",
     "concepts:coverage": "tsx scripts/concept-coverage.ts",
     "ingest:news": "tsx scripts/ingest-news.ts",
-    "ingest:company": "tsx scripts/ingest-company.ts"
+    "ingest:company": "tsx scripts/ingest-company.ts",
+    "ingest:ai": "tsx scripts/ingest-ai.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "^5.10.1",
     "next": "^16.3.0",

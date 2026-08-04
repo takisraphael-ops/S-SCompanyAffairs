@@ -1,15 +1,18 @@
 import { getEnv } from "@/lib/env";
+import { AnthropicProvider } from "./anthropic";
 import { EdgarProvider } from "./edgar";
 import { FinnhubProvider } from "./finnhub";
 import { FinnhubNewsProvider } from "./finnhub/news";
 import { MockProvider } from "./mock";
 import { MockFundamentalsProvider } from "./mock/fundamentals";
+import { MockLlmProvider } from "./mock/llm";
 import { MockNewsProvider } from "./mock/news";
 import { RssNewsProvider } from "./rss";
 import type {
   CalendarProvider,
   FilingsProvider,
   FundamentalsProvider,
+  LlmProvider,
   NewsProvider,
   ProfileProvider,
   QuoteProvider,
@@ -145,6 +148,40 @@ export function getCalendarProviders(): CalendarProvider[] {
   return calendarProviders;
 }
 
+let llmProvider: LlmProvider | null = null;
+
+/**
+ * The text generator.
+ *
+ * One-of rather than a set: unlike news, where more sources mean better
+ * coverage, two models answering the same question produce two answers and no
+ * way to choose between them.
+ */
+export function getLlmProvider(): LlmProvider {
+  if (llmProvider) return llmProvider;
+
+  const env = getEnv();
+  switch (env.LLM_PROVIDER) {
+    case "anthropic":
+      // Presence of the key is enforced by the env schema.
+      llmProvider = new AnthropicProvider(env.ANTHROPIC_API_KEY!, {
+        fast: env.ANTHROPIC_FAST_MODEL,
+        careful: env.ANTHROPIC_MODEL,
+      });
+      break;
+    case "mock":
+    default:
+      llmProvider = new MockLlmProvider();
+      break;
+  }
+  return llmProvider;
+}
+
+/** Whether generated text will come from a real model. Drives UI labelling. */
+export function isLlmConfigured(): boolean {
+  return getEnv().LLM_PROVIDER !== "mock";
+}
+
 /** Test seam. */
 export function resetProviderCache(): void {
   quoteProvider = null;
@@ -152,4 +189,5 @@ export function resetProviderCache(): void {
   newsProviders = null;
   fundamentalsProviders = null;
   calendarProviders = null;
+  llmProvider = null;
 }

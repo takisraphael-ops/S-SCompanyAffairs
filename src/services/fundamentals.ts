@@ -1,6 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  aiGenerations,
   companyEvents,
   filings,
   fundamentals,
@@ -128,16 +129,47 @@ export async function getMetricHistory(
     .reverse();
 }
 
+export interface SummarisedFiling extends Filing {
+  /** Plain-English note from the AI layer, when one has been generated. */
+  summary: string | null;
+  /** Which model wrote it; "mock" means placeholder text. */
+  summaryModel: string | null;
+}
+
+/**
+ * Filings with their generated summaries, in one query.
+ *
+ * The summary lives in `ai_generations` rather than on the filing row, so
+ * there is exactly one copy of it and exactly one record of which model wrote
+ * it. That costs one left join here and saves the two from ever disagreeing.
+ */
 export async function listFilings(
   securityId: string,
   limit = 25,
-): Promise<Filing[]> {
-  return getDb()
-    .select()
+): Promise<SummarisedFiling[]> {
+  const rows = await getDb()
+    .select({
+      filing: filings,
+      summary: aiGenerations.body,
+      summaryModel: aiGenerations.model,
+    })
     .from(filings)
+    .leftJoin(
+      aiGenerations,
+      and(
+        eq(aiGenerations.kind, "filing_summary"),
+        eq(aiGenerations.subjectKey, sql`${filings.id}::text`),
+      ),
+    )
     .where(eq(filings.securityId, securityId))
     .orderBy(desc(filings.filedAt))
     .limit(limit);
+
+  return rows.map((r) => ({
+    ...r.filing,
+    summary: r.summary,
+    summaryModel: r.summaryModel,
+  }));
 }
 
 export interface DatedEvent extends CompanyEvent {

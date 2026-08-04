@@ -1,6 +1,8 @@
+import { ExplainMetric } from "@/components/explain-metric";
 import { MetricLabel } from "@/components/metric-label";
 import { formatMetricValue } from "@/lib/derive";
 import { METRIC_GROUPS } from "@/lib/metrics";
+import { getConceptIndex } from "@/services/concepts";
 import type { PeriodSnapshot } from "@/services/fundamentals";
 
 /**
@@ -11,11 +13,19 @@ import type { PeriodSnapshot } from "@/services/fundamentals";
  * in `concept_metrics`. That is the mechanism P1 built paying off: this file
  * contains no explanation logic at all, and adding a metric to METRIC_GROUPS
  * is enough to make it explainable.
+ *
+ * P5 adds the other half. The label answers "what is a P/E ratio" from
+ * authored content; "Why?" answers "why is *this* company's 47" from a model,
+ * on request. Both are gated on the same `concept_metrics` mapping, so a
+ * figure never offers the contextual explanation without the definition it
+ * builds on.
  */
 export async function KeyFigures({
   snapshot,
+  securityId,
 }: {
   snapshot: PeriodSnapshot | null;
+  securityId: string;
 }) {
   if (!snapshot) {
     return (
@@ -32,6 +42,7 @@ export async function KeyFigures({
   }
 
   const byKey = new Map(snapshot.metrics.map((m) => [m.metricKey, m]));
+  const conceptIndex = await getConceptIndex();
 
   const groups = METRIC_GROUPS.map((group) => ({
     title: group.title,
@@ -68,7 +79,7 @@ export async function KeyFigures({
               {group.rows.map((metric) => (
                 <div
                   key={metric.metricKey}
-                  className="flex items-baseline justify-between gap-3 border-b border-neutral-100 pb-1.5 last:border-0 dark:border-neutral-900"
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 border-b border-neutral-100 pb-1.5 last:border-0 dark:border-neutral-900"
                 >
                   <dt className="text-sm text-neutral-600 dark:text-neutral-400">
                     <MetricLabel metricKey={metric.metricKey} />
@@ -81,9 +92,23 @@ export async function KeyFigures({
                       </span>
                     )}
                   </dt>
-                  <dd className="tnum shrink-0 text-sm font-medium">
-                    {formatMetricValue(metric.value, metric.unit)}
-                  </dd>
+                  {/*
+                    A figure with a concept renders its own value cell, so the
+                    explanation it opens can be a second `dd` spanning the
+                    whole row rather than a narrow column under the number.
+                  */}
+                  {conceptIndex.byMetric.has(metric.metricKey) ? (
+                    <ExplainMetric
+                      securityId={securityId}
+                      metricKey={metric.metricKey}
+                    >
+                      {formatMetricValue(metric.value, metric.unit)}
+                    </ExplainMetric>
+                  ) : (
+                    <dd className="tnum shrink-0 text-sm font-medium">
+                      {formatMetricValue(metric.value, metric.unit)}
+                    </dd>
+                  )}
                 </div>
               ))}
             </dl>

@@ -145,3 +145,53 @@ export interface FilingsProvider {
   resolveCik(ticker: string): Promise<string | null>;
   getRecentFilings(cik: string, limit?: number): Promise<Filing[]>;
 }
+
+/**
+ * How much thinking a generation is worth paying for.
+ *
+ * Two tiers rather than a model name, because the caller knows how hard its
+ * task is and should not also have to know which model is currently good at
+ * it. Adapters map the tier to a model; see src/providers/registry.ts.
+ */
+export type LlmTier = "fast" | "careful";
+
+export interface LlmRequest {
+  /**
+   * What is being generated, e.g. "story_summary". Carried so a failure names
+   * the kind of work that failed, and so the mock adapter can shape a
+   * plausible answer without parsing the prompt.
+   */
+  kind: string;
+  /** One line naming the specific thing, e.g. "AAPL · Q3 results". */
+  subject: string;
+  /**
+   * Instructions and constraints. Identical across every call of a given
+   * kind, which is what makes it worth caching at the provider.
+   */
+  system: string;
+  /** The part that varies: this company's figures, this story's headlines. */
+  user: string;
+  maxTokens: number;
+  tier: LlmTier;
+}
+
+export interface LlmResult {
+  text: string;
+  /** The model that actually answered, recorded with the output. */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * Text generation.
+ *
+ * Deliberately the narrowest interface that serves P5: one completion, no
+ * tools, no streaming, no conversation. Everything generated here is a short
+ * piece of prose about numbers we already hold, produced by a batch job or a
+ * server action and then cached — none of which needs a chat loop.
+ */
+export interface LlmProvider {
+  readonly name: string;
+  complete(req: LlmRequest): Promise<LlmResult>;
+}

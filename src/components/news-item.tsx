@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { GeneratedNote } from "@/components/generated-note";
 import { Term } from "@/components/term";
 import { formatRelativeTime } from "@/lib/format";
 import { EVENT_CONCEPT, EVENT_LABEL } from "@/news/classify";
+import type { GeneratedText } from "@/services/ai";
 import type { FeedItem } from "@/services/news";
 
 /**
@@ -33,9 +35,12 @@ export async function NewsItem({
   item,
   /** Ticker whose page this is, so it is not repeated as a cross-mention. */
   currentTicker,
+  /** Story summary from the AI layer, for clustered stories only. */
+  summary = null,
 }: {
   item: FeedItem;
   currentTicker?: string;
+  summary?: GeneratedText | null;
 }) {
   const others = item.tickers.filter((t) => t !== currentTicker);
 
@@ -65,10 +70,24 @@ export async function NewsItem({
         </a>
       </h3>
 
-      {item.snippet && (
-        <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-neutral-500">
-          {item.snippet}
-        </p>
+      {/*
+        The summary displaces the snippet rather than joining it. A snippet is
+        one outlet's opening line; for a story forty outlets carried, a summary
+        of all of them is strictly the better thing to read, and showing both
+        would say the same thing twice in two voices.
+      */}
+      {summary ? (
+        <GeneratedNote
+          body={summary.body}
+          model={summary.model}
+          variant="inline"
+        />
+      ) : (
+        item.snippet && (
+          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-neutral-500">
+            {item.snippet}
+          </p>
+        )
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-400">

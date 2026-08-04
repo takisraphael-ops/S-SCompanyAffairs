@@ -39,6 +39,42 @@ const envSchema = z
     FINNHUB_API_KEY: z.string().optional(),
 
     /**
+     * Which adapter writes the summaries and explanations. `mock` produces
+     * clearly-labelled placeholder text so the feature is visible and the
+     * plumbing is exercised without a key; `anthropic` calls the Claude API.
+     */
+    LLM_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
+
+    ANTHROPIC_API_KEY: z.string().optional(),
+
+    /**
+     * Two models, because the work splits cleanly in two.
+     *
+     * Most generation is mechanical — restate an SEC form, say what a cluster
+     * of near-identical headlines has in common — and is high volume, so it
+     * goes to the cheap model. Explaining why *this* company's figure looks
+     * the way it does is contextual reasoning over numbers, is rare, and is
+     * the one a reader will judge the app by, so it goes to the capable one.
+     */
+    ANTHROPIC_FAST_MODEL: z.string().min(1).default("claude-haiku-4-5"),
+    ANTHROPIC_MODEL: z.string().min(1).default("claude-opus-5"),
+
+    /**
+     * Ceiling on generations per AI ingest run.
+     *
+     * The backlog on a first run is every story and every filing ever
+     * ingested, and an unbounded job would spend the month's budget
+     * discovering that. Work is ordered newest-first, so a capped run does
+     * the part anyone is looking at and the next run continues.
+     */
+    AI_MAX_GENERATIONS_PER_RUN: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .default(25),
+
+    /**
      * SEC requires a declarative User-Agent identifying the operator, in the
      * form "Name email@example.com". Requests without one get 403s.
      * https://www.sec.gov/os/webmaster-faq#developers
@@ -68,6 +104,13 @@ const envSchema = z
         code: "custom",
         path: ["FINNHUB_API_KEY"],
         message: "FINNHUB_API_KEY is required when NEWS_PROVIDERS includes finnhub",
+      });
+    }
+    if (val.LLM_PROVIDER === "anthropic" && !val.ANTHROPIC_API_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ANTHROPIC_API_KEY"],
+        message: "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic",
       });
     }
     if (val.NODE_ENV === "production" && !val.CRON_SECRET) {

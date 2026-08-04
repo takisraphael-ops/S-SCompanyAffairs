@@ -11,8 +11,11 @@
  * deliberately fake tickers and deletes them on the way out.
  */
 import { eq, inArray, sql } from "drizzle-orm";
+import { inputHash, readGeneration, storeGeneration } from "@/ai/cache";
+import type { PromptSpec } from "@/ai/prompts";
 import { closeDb, getDb } from "@/db";
 import {
+  aiGenerations,
   fundamentals,
   priceBars,
   quotesLatest,
@@ -59,6 +62,12 @@ async function teardown() {
     await db.delete(transactions).where(
       inArray(
         transactions.securityId,
+        ids.map((r) => r.id),
+      ),
+    );
+    await db.delete(aiGenerations).where(
+      inArray(
+        aiGenerations.securityId,
         ids.map((r) => r.id),
       ),
     );
@@ -191,6 +200,43 @@ async function main() {
     "revenue alone derives nothing, correctly",
   );
 
+  // --- generation cache ---------------------------------------------------
+  // The unique key is what makes regenerating a subject replace its answer
+  // rather than accumulate superseded paraphrases beside it.
+  const spec: PromptSpec = {
+    kind: "story_summary",
+    subject: "smoke",
+    system: "s",
+    user: "v1",
+  };
+  const store = (s: PromptSpec, body: string) =>
+    storeGeneration({
+      spec: s,
+      subjectKey: `smoke:${added.id}`,
+      body,
+      model: "smoke",
+      inputTokens: 1,
+      outputTokens: 1,
+      securityId: added.id,
+    });
+
+  await store(spec, "first");
+  const restated: PromptSpec = { ...spec, user: "v2" };
+  await store(restated, "second");
+
+  const cached = await readGeneration("story_summary", `smoke:${added.id}`);
+  check("regenerating replaces rather than appends", cached?.body === "second", cached?.body);
+  check(
+    "and records the new inputs, so the next read is a hit",
+    cached?.inputHash === inputHash(restated),
+  );
+
+  const beforeCascade = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(aiGenerations)
+    .where(eq(aiGenerations.securityId, added.id));
+  check("generated text is attributed to its company", beforeCascade[0]?.n === 1);
+
   // --- portfolio ledger ---------------------------------------------------
   await recordTransaction({
     ticker: a,
@@ -258,6 +304,16 @@ async function main() {
     "deleting a security cascades to its quotes",
     orphans[0]?.n === 0,
     String(orphans[0]?.n),
+  );
+
+  const orphanText = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(aiGenerations)
+    .where(eq(aiGenerations.securityId, added.id));
+  check(
+    "and takes its generated text with it",
+    orphanText[0]?.n === 0,
+    String(orphanText[0]?.n),
   );
 
   await teardown();

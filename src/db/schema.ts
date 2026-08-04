@@ -126,6 +126,17 @@ export const eventType = pgEnum("event_type", [
 ]);
 
 /**
+ * What a piece of generated text is. Each kind has its own prompt, its own
+ * subject key and its own place in the UI — see src/ai/kinds.ts.
+ */
+export const generationKind = pgEnum("generation_kind", [
+  "story_summary", // what a cluster of articles collectively says
+  "filing_summary", // an SEC form, in plain English
+  "metric_explanation", // why *this* company's number looks like this
+  "article_classification", // the event type the keyword rules could not name
+]);
+
+/**
  * How an article came to be linked to a security. Recorded so precision can
  * be measured per method and the rules tuned, rather than guessed at.
  */
@@ -426,6 +437,16 @@ export const filings = pgTable(
     url: text("url").notNull(),
     /** Description SEC supplies for the primary document, when present. */
     description: text("description"),
+    /*
+     * No `plain_summary` column, despite docs/PLAN.md §5 naming one.
+     *
+     * The generated text lives in `ai_generations` and is read through one
+     * left join. A copy here would have to carry the model that wrote it as
+     * well — the UI labels generated text by model — and then the same fact
+     * would exist in two places with nothing keeping them equal. That is the
+     * argument this schema already makes about positions and the ledger, and
+     * it applies here for the same reason.
+     */
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -660,6 +681,66 @@ export const userSettings = pgTable("user_settings", {
     .defaultNow(),
 });
 
+/* ------------------------------------------------------------------ *
+ * Generated text
+ *
+ * Everything an LLM writes lands here first, whatever it is about. One table
+ * rather than one per kind, because the interesting columns are identical
+ * (what it is about, what it was generated from, which model, what it cost)
+ * and the differences are all in the prompt.
+ *
+ * The plan (docs/PLAN.md §5) called this `explanations`, keyed by concept,
+ * security and period. That key only fits one of the four things P5
+ * generates; `kind` + `subject_key` fits all of them and keeps the cost
+ * accounting in one place.
+ * ------------------------------------------------------------------ */
+
+export const aiGenerations = pgTable(
+  "ai_generations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: generationKind("kind").notNull(),
+    /**
+     * What it is about, in a form the caller can reconstruct without a
+     * lookup: a story id, a filing id, or "<security_id>:<metric_key>".
+     */
+    subjectKey: text("subject_key").notNull(),
+    /**
+     * Digest of everything the prompt was built from, including the prompt
+     * template's own version.
+     *
+     * This is what makes the cache correct rather than merely cheap. Keyed on
+     * the subject alone, a restated figure or a newly clustered article would
+     * be described by text generated before it existed, and nothing would
+     * ever notice. Keyed on the inputs, stale text regenerates itself.
+     */
+    inputHash: text("input_hash").notNull(),
+    body: text("body").notNull(),
+    /** The exact model string, so a change of model is visible in the data. */
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /**
+     * The company this is about, when there is one. Nullable because a story
+     * can concern several; it exists so deleting a security takes its
+     * generated text with it.
+     */
+    securityId: uuid("security_id").references(() => securities.id, {
+      onDelete: "cascade",
+    }),
+    generatedAt: timestamp("generated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One current generation per subject. Regenerating replaces rather than
+    // appends: this is a cache, and an unbounded history of superseded
+    // paraphrases is not worth storing.
+    uniqueIndex("ai_generations_subject_key").on(t.kind, t.subjectKey),
+    index("ai_generations_security_idx").on(t.securityId),
+  ],
+);
+
 export const userProgress = pgTable(
   "user_progress",
   {
@@ -706,3 +787,6 @@ export type NewConcept = typeof concepts.$inferInsert;
 export type ConceptLevel = (typeof conceptLevel.enumValues)[number];
 export type UserSettings = typeof userSettings.$inferSelect;
 export type UserProgress = typeof userProgress.$inferSelect;
+export type AiGeneration = typeof aiGenerations.$inferSelect;
+export type NewAiGeneration = typeof aiGenerations.$inferInsert;
+export type GenerationKind = (typeof generationKind.enumValues)[number];

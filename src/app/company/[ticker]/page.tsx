@@ -107,10 +107,16 @@ export default async function CompanyPage({ params }: Props) {
       )}
 
       <section className="mb-10">
-        <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">
           Key figures
         </h3>
-        <KeyFigures snapshot={snapshot} />
+        <p className="mb-3 text-xs text-neutral-400">
+          Hover a label for what the figure is. Press{" "}
+          <span className="font-medium">Why?</span> for what this company&apos;s
+          figure works out to and what would explain it — written by a model
+          from the numbers on this page, and cached once written.
+        </p>
+        <KeyFigures snapshot={snapshot} securityId={security.id} />
       </section>
 
       <section className="mb-10">

@@ -43,6 +43,13 @@
       "when": 1785841811058,
       "tag": "0005_minor_fantastic_four",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785851733644,
+      "tag": "0006_real_big_bertha",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,8 @@
+import { GeneratedNote } from "@/components/generated-note";
 import { Term } from "@/components/term";
-import type { Filing } from "@/db/schema";
 import { formatRelativeTime } from "@/lib/format";
 import { describeForm, isMaterialForm } from "@/lib/forms";
+import type { SummarisedFiling } from "@/services/fundamentals";
 
 /**
  * Filings, with every form code translated.
@@ -12,8 +13,14 @@ import { describeForm, isMaterialForm } from "@/lib/forms";
  *
  * Routine filings — insider forms, plan reports — are collapsed rather than
  * dropped: they are legitimate, just not what you scan a filing list for.
+ *
+ * Two descriptions can appear under a row, and the difference between them is
+ * the point: the authored one says what the form code means, always, for
+ * free. The generated one, when the AI ingest has written it, says what
+ * filing this particular form at this particular time ordinarily indicates.
+ * Neither has read the document, and the second says so.
  */
-async function FilingRow({ filing }: { filing: Filing }) {
+async function FilingRow({ filing }: { filing: SummarisedFiling }) {
   const info = describeForm(filing.formType);
 
   return (
@@ -41,11 +48,24 @@ async function FilingRow({ filing }: { filing: Filing }) {
       <p className="mt-1 text-xs leading-relaxed text-neutral-500">
         {info.description}
       </p>
+      {filing.summary && filing.summaryModel && (
+        <div className="mt-2">
+          <GeneratedNote
+            body={filing.summary}
+            model={filing.summaryModel}
+            variant="inline"
+          />
+        </div>
+      )}
     </li>
   );
 }
 
-export async function FilingsList({ filings }: { filings: Filing[] }) {
+export async function FilingsList({
+  filings,
+}: {
+  filings: SummarisedFiling[];
+}) {
   if (filings.length === 0) {
     return (
       <p className="text-sm text-neutral-500">

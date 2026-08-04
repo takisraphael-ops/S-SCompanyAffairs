@@ -94,9 +94,10 @@ Two different jobs, two different mechanisms:
 | **What is a P/E ratio?** | Static MDX, authored | Accuracy matters, never changes, zero latency, zero cost |
 | **Why is *this* company's P/E 47 when its sector averages 20?** | LLM, on demand | Contextual, depends on live numbers, can't be pre-written |
 
-Contextual explanations get cached in `explanations` keyed by
-(concept, security, period) so we pay for each one once. Haiku is cheap enough
-to run this generously.
+Contextual explanations get cached so we pay for each one once. Built as
+`ai_generations`, keyed on what it is about plus a digest of the prompt that
+produced it — see P5 for why the digest, rather than (concept, security,
+period), is what decides whether a stored answer still holds.
 
 ### Progressive disclosure
 
@@ -179,15 +180,19 @@ article_links(article_id, security_id, relevance, method)   -- many-to-many
 
 -- Filings & events
 filings(id, security_id, cik, accession_no, form_type, filed_at,
-        url, plain_summary)
+        url, description)                        -- summary lives in ai_generations
 events(id, security_id, kind, scheduled_at, actual_at, payload jsonb)
 
 -- Education (first-class)
 concepts(id, slug, term, aliases text[], one_liner, body_mdx, level, category)
 concept_edges(concept_id, prerequisite_id)        -- DAG
 concept_metrics(concept_id, metric_key)           -- auto-links metrics → concepts
-explanations(id, concept_id, security_id, period, body, model, generated_at)
 user_progress(user_id, concept_id, status, last_seen_at)
+
+-- Generated text (built as ai_generations; see P5 below for why the key
+-- differs from the `explanations` shape originally sketched here)
+ai_generations(id, kind, subject_key, input_hash, body, model,
+               input_tokens, output_tokens, security_id, generated_at)
 
 -- Portfolio
 accounts(id, name, currency)
@@ -416,10 +421,64 @@ Decisions taken during implementation:
 Not built here: a UI for entering corporate actions — splits are inserted
 directly for now — and multi-currency conversion.
 
-### P5 — AI layer
+### P5 — AI layer ✅ built
 Story-cluster summaries, contextual explanations against live numbers,
 plain-English filing summaries, materiality classification for borderline
 articles. Cached and batched.
+
+Decisions taken during implementation:
+
+- **The cache key is a digest of the prompt itself**, not a hand-listed set
+  of inputs. A curated fingerprint has to be updated whenever a prompt starts
+  using a new field, and forgetting is silent: the page keeps showing text
+  written before a figure was restated and nothing is wrong enough to notice.
+  The prompt, by construction, contains exactly what the answer depended on —
+  including the prompt template's own version, so rewriting a prompt
+  regenerates every entry of that kind rather than leaving two generations of
+  output side by side.
+- **One `ai_generations` table, not the planned `explanations`.** The plan's
+  key — concept, security, period — fits one of the four things this phase
+  generates. `kind` + `subject_key` fits all of them and puts the token
+  accounting in one place.
+- **`filings.plain_summary` was not added**, despite §5 naming it. The UI
+  labels generated text by the model that wrote it, so a denormalised copy
+  would need the model too, and then the same fact would live in two places
+  with nothing keeping them equal. One left join instead.
+- **Summaries are batch, explanations are on demand.** A company page carries
+  around thirty figures; generating an explanation for each on every visit
+  would cost real money to answer questions nobody asked. Contextual
+  explanations are therefore produced by a server action on a click — which
+  also keeps §2's rule intact, since a click is not a render.
+- **The reader's level is part of the prompt and therefore part of the key.**
+  A beginner and an advanced reader get different text, and neither is served
+  the other's.
+- **Two models, not one.** Restating a form code or a cluster of near-identical
+  headlines is mechanical and high volume, so it goes to the cheap model;
+  reading a figure against a company's own history is the output the app will
+  be judged on and goes to the capable one.
+- **The AI classifier only sees what the rules could not name.** The keyword
+  rules stay the first pass — free, instant, and inspectable — and the model
+  runs on the `other` residue, which is both the cheapest place to spend it
+  and the only place a rule cannot be written. Its answer is one word from a
+  closed list, checked against the enum and rejected rather than coerced;
+  materiality is recomputed from the same function the rules use, because
+  changing the event type without the score would leave the feed ranking an
+  8-K like the "other" it used to be.
+- **Placeholder text is regenerated when a key appears.** The prompt does not
+  change when `LLM_PROVIDER` does, so every hash would still match and a
+  keyless install that later configures a key would serve "no API key is
+  configured" forever. Placeholder rows are treated as superseded — but a
+  change between *real* models is not, because that is not a reason to re-buy
+  every summary the previous one wrote.
+- **Generated text is labelled by model wherever it appears**, and placeholder
+  text is labelled differently from a model's. A reader has to be able to tell
+  which words came from a filing and which from a model without thinking
+  about it.
+
+Not built here: reading the filings themselves. A 10-K runs to a hundred
+pages and would have to be fetched and chunked — a phase of its own, not a
+paragraph. The summaries describe what a form is for and what filing one
+ordinarily indicates, and both the prompt and the UI say so.
 
 ### P6 — Alerts and digest
 Rules engine (price thresholds, new filings, keyword hits), morning email

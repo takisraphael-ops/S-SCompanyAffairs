@@ -6,7 +6,9 @@ export type ProviderErrorCode =
   | "invalid_response"
   | "timeout"
   | "network"
-  | "upstream";
+  | "upstream"
+  /** A model declined to answer. Never retryable — the same prompt recurs. */
+  | "refused";
 
 /**
  * A failure attributable to an upstream data provider.

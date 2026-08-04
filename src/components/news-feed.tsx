@@ -1,5 +1,6 @@
 import { NewsItem } from "@/components/news-item";
 import { LOW_SIGNAL_THRESHOLD } from "@/news/classify";
+import { getStorySummaries } from "@/services/ai";
 import type { FeedItem } from "@/services/news";
 
 /**
@@ -9,6 +10,11 @@ import type { FeedItem } from "@/services/news";
  * makes it impossible to tell what is new. Instead, low-signal items are
  * collapsed behind a disclosure: analyst notes and listicles remain reachable
  * without letting them dominate, which is the whole point of scoring them.
+ *
+ * Summaries are fetched here rather than per row: eighty rows would be eighty
+ * round trips for text that is optional. They are read, never generated — the
+ * batch job writes them, and a feed that waited on a model would be a feed
+ * nobody opens.
  */
 export async function NewsFeed({
   items,
@@ -30,6 +36,17 @@ export async function NewsFeed({
     );
   }
 
+  /*
+   * Only clustered stories. For a single article the headline and its own
+   * snippet already say everything a paraphrase could, and adding one would
+   * put generated text on every row of the feed for no gain. Where forty
+   * outlets carried the same release, one summary genuinely beats one
+   * outlet's lede.
+   */
+  const summaries = await getStorySummaries(
+    items.filter((i) => i.articleCount > 1).map((i) => i.storyId),
+  );
+
   return (
     <div>
       <div>
@@ -38,6 +55,7 @@ export async function NewsFeed({
             key={item.storyId}
             item={item}
             currentTicker={currentTicker}
+            summary={summaries.get(item.storyId) ?? null}
           />
         ))}
       </div>
@@ -54,6 +72,7 @@ export async function NewsFeed({
                 key={item.storyId}
                 item={item}
                 currentTicker={currentTicker}
+                summary={summaries.get(item.storyId) ?? null}
               />
             ))}
           </div>

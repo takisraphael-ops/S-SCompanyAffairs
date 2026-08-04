@@ -156,12 +156,26 @@ export class MockFundamentalsProvider
     const shape = shapeFor(target.ticker);
     const out: CompanyEventDatum[] = [];
 
-    // Next earnings date, deterministic but spread across companies.
-    const daysAhead = 5 + (seed % 45);
-    const next = new Date(Date.now() + daysAhead * 86_400_000);
+    /*
+     * Snapped to UTC midnight, not to the current instant.
+     *
+     * `company_events` is keyed on (security, kind, scheduled_at), so an
+     * event time carrying the run's clock is a different event on every run
+     * and the upsert appends instead of updating — the calendar fills with
+     * copies of one earnings date. A real provider supplies a date; the mock
+     * has to behave like one.
+     */
+    const day = (daysAhead: number) => {
+      const d = new Date(Date.now() + daysAhead * 86_400_000);
+      return new Date(
+        Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+      );
+    };
+
+    // Deterministic per ticker, but spread across companies.
     out.push({
       kind: "earnings",
-      scheduledAt: next,
+      scheduledAt: day(5 + (seed % 45)),
       payload: {
         epsEstimate:
           Math.round(((shape.revenue * shape.netMargin) / shape.shares / 4) * 100) /
@@ -173,7 +187,7 @@ export class MockFundamentalsProvider
 
     out.push({
       kind: "dividend",
-      scheduledAt: new Date(Date.now() + ((seed % 30) + 10) * 86_400_000),
+      scheduledAt: day((seed % 30) + 10),
       payload: { amount: Math.round(rand(seed) * 120) / 100, type: "ex-dividend" },
       source: "mock",
     });

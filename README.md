@@ -16,12 +16,14 @@ company you're currently looking at, not as a generic dictionary entry.
 
 ## Status
 
-**P0 through P4 are built.** Watchlist with quote ingest; the explanation
+**P0 through P5 are built.** Watchlist with quote ingest; the explanation
 engine (79 concepts, hover-to-explain, prerequisite graph); news with story
 clustering, entity resolution and materiality ranking; company detail with
-fundamentals from SEC XBRL, translated filings and an earnings calendar; and a
-portfolio ledger with exact-decimal cost basis and split handling. See
-**[docs/PLAN.md](docs/PLAN.md)** for the architecture and phase order.
+fundamentals from SEC XBRL, translated filings and an earnings calendar; a
+portfolio ledger with exact-decimal cost basis and split handling; and an AI
+layer that summarises story clusters, translates filings and explains a
+company's own figures on request. See **[docs/PLAN.md](docs/PLAN.md)** for the
+architecture and phase order.
 
 | Phase | What | Status |
 |---|---|---|
@@ -30,7 +32,7 @@ portfolio ledger with exact-decimal cost basis and split handling. See
 | P2 | News ingest, dedup, entity resolution, materiality | **done** |
 | P3 | Fundamentals, EDGAR filings, earnings calendar | **done** |
 | P4 | Portfolio ledger and P&L | **done** |
-| P5 | AI summaries and contextual explanations | planned |
+| P5 | AI summaries and contextual explanations | **done** |
 | P6 | Alerts and morning digest | planned |
 
 ## Quick start
@@ -66,6 +68,27 @@ Free Finnhub plans do not include historical candles. That is handled rather
 than fatal: the app accumulates daily bars going forward from each quote, so
 history builds itself from the day you add a ticker.
 
+### Turning on the AI layer
+
+The summaries and explanations run without a key too — as clearly-labelled
+placeholder text, so you can see where they appear and what they replace. For
+real ones, in `.env.local`:
+
+```
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_key
+```
+
+then `npm run ingest:ai`. Placeholder text is treated as superseded once a key
+is configured, so that one run replaces all of it — you do not have to clear
+anything.
+
+Two models are used: `claude-haiku-4-5` for the mechanical, high-volume work
+(story summaries, filing translations, classification) and `claude-opus-5` for
+explaining a company's figures in context. Override either with
+`ANTHROPIC_FAST_MODEL` and `ANTHROPIC_MODEL`. `AI_MAX_GENERATIONS_PER_RUN`
+(default 25) bounds what one run can spend; each run reports its token usage.
+
 ## Commands
 
 | Command | What it does |
@@ -77,6 +100,7 @@ history builds itself from the day you add a ticker.
 | `npm run ingest` | Run the quote ingest once from the CLI |
 | `npm run ingest:news` | Run the news ingest; prints the dedup and match-method breakdown |
 | `npm run ingest:company` | Pull fundamentals, filings and calendar events |
+| `npm run ingest:ai` | Write the summaries that are missing or stale; prints tokens spent |
 | `npm run concepts:seed` | Reconcile the database with the authored concepts |
 | `npm run concepts:coverage` | Fail if a displayed metric has no explanation |
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
@@ -96,8 +120,9 @@ a rewrite. See [docs/PLAN.md](docs/PLAN.md) §2.
 
 ```
 src/
-  providers/     adapters (finnhub, edgar, mock) behind capability interfaces
+  providers/     adapters (finnhub, edgar, anthropic, mock) behind capability interfaces
   ingest/        scheduled jobs that write to the database
+  ai/            prompts, generation cache, subject builders
   services/      database reads and writes used by the UI
   content/       authored concept explanations + validation
   db/            drizzle schema and migrations
@@ -186,12 +211,50 @@ changes. `npm run concepts:coverage` fails when a metric the UI can render has
 no explanation, which is what stops coverage rotting as later phases add
 fundamentals.
 
+## What the AI layer does, and what it will not do
+
+Authored content answers *what a P/E ratio is* — accurately, instantly, at no
+cost, and identically for every company. It cannot answer *why this company's
+is 47*, because that depends on numbers that move. That gap is the whole job.
+
+**Every prompt carries the stored figures and forbids introducing others.**
+The app's central claim is that a number and the words beside it cannot
+disagree, and that fails the moment a model supplies a figure of its own. The
+prompts also refuse investment advice outright: no cheap or expensive, no
+prediction, no recommendation. Those two constraints are asserted by a test,
+so a rewrite that drops them fails rather than ships.
+
+**Nothing is generated during a page render.** Summaries are written by
+`npm run ingest:ai` and read back out of Postgres, like every other ingest.
+Contextual explanations are triggered by pressing **Why?** — a click, not a
+render — because a company page carries thirty figures and generating all of
+them on every visit would cost money to answer questions nobody asked.
+
+**Everything generated is cached against a digest of the prompt that produced
+it.** Not against the subject: keyed that way, a restated figure would be
+described by text written before it existed and nothing would notice. Keyed on
+the prompt, stale text regenerates itself, and rewriting a prompt regenerates
+every answer it produced instead of leaving two generations side by side.
+
+**Generated text is labelled by the model that wrote it**, and placeholder
+text is labelled differently. You should never have to wonder which words came
+from a filing and which from a model.
+
+Three things it deliberately does not do. It does not read the filings — a
+10-K would have to be fetched and chunked, which is a phase of its own — so
+filing notes explain what a form is *for*, and say so. It does not replace the
+news classifier; the keyword rules stay the first pass and the model only sees
+what they could not name, one word from a closed list, rejected rather than
+coerced if it answers anything else. And it does not write to the ledger:
+nothing a model produces changes a number.
+
 ## Scheduling
 
-`vercel.json` runs `/api/cron/quotes` every 30 minutes during US market hours on
-weekdays. The route requires `Authorization: Bearer $CRON_SECRET`; `CRON_SECRET`
-is mandatory in production, or the endpoint would let anyone burn your provider
-quota.
+`vercel.json` runs four jobs: quotes every 30 minutes during US market hours on
+weekdays, news every two hours, the AI pass 45 minutes after it, and company
+data daily. Every route requires `Authorization: Bearer $CRON_SECRET`;
+`CRON_SECRET` is mandatory in production, or the endpoint would let anyone burn
+your provider quota — which now includes your model spend.
 
 Vercel's Hobby plan limits cron to one run per day. For intraday refresh, use
 the Pro plan or drive `npm run ingest` from any external scheduler.
