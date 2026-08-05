@@ -54,6 +54,22 @@ It runs with **no API keys**. `QUOTE_PROVIDER=mock` (the default) generates
 deterministic fake prices, and company identity comes from SEC EDGAR, which
 needs no key — only a `SEC_USER_AGENT` naming you.
 
+### What happens when you mistype a ticker
+
+EDGAR decides. It knows every SEC registrant, needs no key, and is therefore
+the one source that can answer this on a fresh install — so a symbol it has
+never heard of is refused rather than becoming a permanent row.
+
+The mock quote provider deliberately gets no say. It prices any string it is
+handed, so a price from it is not evidence of anything; letting it vouch for
+symbols would mean every typo passed the check. Finnhub, which answers
+`not_found` for symbols it does not know, does get a say, and covers the
+foreign listings and funds that EDGAR does not.
+
+If EDGAR cannot be reached at all, the symbol is accepted. An outage that
+locks you out of adding companies is a dead end you cannot work around; one
+unwanted row is a click to remove.
+
 ### Using real market data
 
 Get a free key at [finnhub.io](https://finnhub.io/register) (~60 requests per

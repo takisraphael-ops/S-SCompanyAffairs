@@ -94,6 +94,15 @@ export interface NewsProvider {
 
 export interface QuoteProvider {
   readonly name: string;
+  /**
+   * Whether a successful `getQuote` is evidence the symbol actually exists.
+   *
+   * False for any provider that synthesises data for whatever it is handed.
+   * Such a provider cannot answer "no", so its "yes" carries no information
+   * and must not be counted as confirmation that a symbol is real — see
+   * `findOrCreateSecurity` in src/services/securities.ts.
+   */
+  readonly canVerifySymbols: boolean;
   getQuote(ticker: string): Promise<Quote>;
   /**
    * Daily OHLCV history. May throw a ProviderError with code `unsupported`
