@@ -67,6 +67,14 @@ function closeOn(ticker: string, dayIdx: number): number {
 export class MockProvider implements QuoteProvider {
   readonly name = PROVIDER;
 
+  /*
+   * This provider prices any string it is given — that is the point of it, and
+   * it is why it cannot be used to check that a symbol is real. Saying so here
+   * keeps typos out of the watchlist on a zero-config install, where EDGAR is
+   * left to answer the question alone.
+   */
+  readonly canVerifySymbols = false;
+
   async getQuote(ticker: string): Promise<Quote> {
     const today = dayIndex(new Date());
     const session = isWeekend(today) ? previousSession(today) : today;

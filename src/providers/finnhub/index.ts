@@ -57,6 +57,9 @@ function url(path: string, params: Record<string, string>, apiKey: string) {
 export class FinnhubProvider implements QuoteProvider, ProfileProvider {
   readonly name = PROVIDER;
 
+  /** Unknown symbols come back as `not_found` below, so a quote means real. */
+  readonly canVerifySymbols = true;
+
   constructor(private readonly apiKey: string) {}
 
   async getQuote(ticker: string): Promise<Quote> {

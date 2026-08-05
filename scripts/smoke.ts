@@ -90,6 +90,22 @@ async function main() {
 
   const [a, b, c] = TICKERS as [string, string, string];
 
+  /*
+   * Create the synthetic securities directly.
+   *
+   * These tickers are deliberately not real companies, and `addToWatchlist`
+   * now refuses symbols that a reachable EDGAR has never heard of — correctly,
+   * since that is what keeps typos out of the watchlist. Inserting them here
+   * gets that guard out of the way of the plumbing this script is actually
+   * testing, and keeps the result the same whether or not the machine running
+   * it can reach sec.gov. The guard itself is covered by unit tests, which do
+   * not need the network to reach a verdict.
+   */
+  await db
+    .insert(securities)
+    .values(TICKERS.map((ticker) => ({ ticker, name: `${ticker} Test Corp` })))
+    .onConflictDoNothing();
+
   // --- validation --------------------------------------------------------
   await assertRejects(
     () => addToWatchlist("not a ticker!!"),
