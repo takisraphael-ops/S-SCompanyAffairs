@@ -1,0 +1,50 @@
+{
+  "name": "s-s-company-affairs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "smoke": "tsx scripts/smoke.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "setup": "npm run db:migrate && npm run concepts:seed",
+    "db:studio": "drizzle-kit studio",
+    "ingest": "tsx scripts/ingest.ts",
+    "concepts:seed": "tsx scripts/seed-concepts.ts",
+    "concepts:coverage": "tsx scripts/concept-coverage.ts",
+    "ingest:news": "tsx scripts/ingest-news.ts",
+    "ingest:company": "tsx scripts/ingest-company.ts",
+    "ingest:ai": "tsx scripts/ingest-ai.ts",
+    "alerts": "tsx scripts/alerts.ts",
+    "digest": "tsx scripts/digest.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.10.1",
+    "next": "^16.3.0",
+    "postgres": "^3.4.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.18.6",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "drizzle-kit": "^0.31.5",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^16.3.0",
+    "tailwindcss": "^4.1.13",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}

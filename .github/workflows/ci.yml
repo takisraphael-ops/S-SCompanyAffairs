@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Re-run without pushing: to check a flake, or to get a result for a branch
+  # whose last push predates this file.
+  workflow_dispatch:
+
+# A second push supersedes the first: nobody needs the result of a commit that
+# has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Not a real key. The mock providers are the default and generate
+  # deterministic data, which is what makes the whole suite runnable with no
+  # secrets at all — see README, "Quick start".
+  QUOTE_PROVIDER: mock
+  NEWS_PROVIDERS: mock
+  LLM_PROVIDER: mock
+  EMAIL_PROVIDER: console
+
+jobs:
+  # Split from the database job deliberately. Nothing here may touch Postgres,
+  # and CI is where that stays true: the app is meant to build and typecheck
+  # from a clean checkout with no services and no configuration, and a job that
+  # had a database available would quietly stop proving it.
+  checks:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # Fails when a metric the UI can render has no authored explanation.
+      # This is the guard that stops explanation coverage rotting as metrics
+      # are added — see README, "How the explanations work".
+      - name: Explanation coverage
+        run: npm run concepts:coverage
+
+      - name: Production build
+        run: npm run build
+
+  # Migrations, constraints, cascades and `numeric` handling can only be
+  # checked against a real Postgres. Unit tests cover the pure logic; this
+  # covers what they cannot.
+  database:
+    name: Database round trip
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: company_affairs
+        ports:
+          - 5432:5432
+        # Without the health check the first migration races the server's
+        # startup and fails on a connection refused roughly one run in five.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/company_affairs
+      # SEC asks for a User-Agent naming a contact so it can reach whoever is
+      # making the requests. The smoke test tolerates EDGAR being unreachable,
+      # so this is not required for CI to pass — set the SEC_USER_AGENT secret
+      # to "Your Name your@email.com" if you would rather identify properly
+      # than fall back to the repository URL.
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || format('S-SCompanyAffairs CI (github.com/{0})', github.repository) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Runs every migration from empty. That is a stronger check than it
+      # looks: it catches a migration that only applies cleanly to a database
+      # which already has the previous schema, which is the state a developer
+      # machine is always in and a fresh deploy never is.
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      # Writes to the database, using deliberately fake tickers it deletes on
+      # the way out. Safe here because the database is thrown away with the
+      # runner.
+      - name: Smoke test
+        run: npm run smoke
