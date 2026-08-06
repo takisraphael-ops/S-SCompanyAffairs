@@ -62,8 +62,12 @@ export async function getQuoteFor(securityId: string) {
   return rows[0] ?? null;
 }
 
-export async function addToWatchlist(ticker: string) {
-  const security = await findOrCreateSecurity(ticker);
+/** @param opts.force Add even when no source recognises the symbol. */
+export async function addToWatchlist(
+  ticker: string,
+  opts: { force?: boolean } = {},
+) {
+  const security = await findOrCreateSecurity(ticker, opts);
 
   await getDb()
     .insert(watchlistItems)

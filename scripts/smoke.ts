@@ -45,6 +45,15 @@ loadEnvFiles();
  */
 const TICKERS = ["ZZTA", "ZZTB", "ZZTC"];
 
+/**
+ * For the override. Deliberately never inserted up front — the point of the
+ * test is that it does not exist and no source can recognise it, which is the
+ * position a London listing is in on a keyless install.
+ */
+const FORCED = "ZZTF";
+
+const ALL_TEST_TICKERS = [...TICKERS, FORCED];
+
 let failures = 0;
 function check(label: string, cond: boolean, detail = "") {
   if (!cond) failures++;
@@ -60,7 +69,7 @@ async function teardown() {
   const ids = await db
     .select({ id: securities.id })
     .from(securities)
-    .where(inArray(securities.ticker, TICKERS));
+    .where(inArray(securities.ticker, ALL_TEST_TICKERS));
   if (ids.length) {
     await db.delete(transactions).where(
       inArray(
@@ -81,7 +90,7 @@ async function teardown() {
       ),
     );
   }
-  await db.delete(securities).where(inArray(securities.ticker, TICKERS));
+  await db.delete(securities).where(inArray(securities.ticker, ALL_TEST_TICKERS));
 }
 
 async function main() {
@@ -112,6 +121,33 @@ async function main() {
     InvalidTickerError,
     "rejects a malformed ticker",
   );
+
+  /*
+   * The override, and the line it does not cross.
+   *
+   * Both assertions hold whether or not the machine can reach sec.gov, which
+   * is why they are worth having here: `force` skips the existence check, and
+   * the format check runs before any lookup, so neither depends on what EDGAR
+   * says. Whether an unforced add of ZZTF is refused does depend on that, so
+   * it is left to the unit tests.
+   */
+  const forced = await addToWatchlist(FORCED, { force: true });
+  check(
+    "force adds a symbol no source recognises",
+    forced.ticker === FORCED,
+    forced.ticker,
+  );
+  check(
+    "and leaves it visibly unidentified",
+    forced.name === FORCED && forced.cik === null,
+    `name=${forced.name} cik=${forced.cik}`,
+  );
+  await assertRejects(
+    () => addToWatchlist("not a ticker!!", { force: true }),
+    InvalidTickerError,
+    "force does not bypass a malformed ticker",
+  );
+  await removeFromWatchlist(forced.id);
 
   // --- add ---------------------------------------------------------------
   const added = await addToWatchlist(a.toLowerCase());

@@ -16,11 +16,28 @@ export async function addTickerAction(
   const raw = String(formData.get("ticker") ?? "").trim();
   if (!raw) return { status: "error", message: "Enter a ticker symbol." };
 
+  // Set by the "Add anyway" control, which only appears after a refusal the
+  // user is entitled to overrule.
+  const force = formData.get("force") === "1";
+
   let security;
   try {
-    security = await addToWatchlist(raw);
+    security = await addToWatchlist(raw, { force });
   } catch (err) {
-    if (err instanceof InvalidTickerError || err instanceof UnknownTickerError) {
+    if (err instanceof UnknownTickerError) {
+      /*
+       * Not a dead end. EDGAR only knows SEC registrants, so a London or
+       * Frankfurt listing lands here through no fault of the user's — and the
+       * app cannot tell that case apart from a typo. Say what happened, and
+       * let them decide, rather than deciding for them.
+       */
+      return {
+        status: "error",
+        message: err.message,
+        unrecognised: raw.toUpperCase(),
+      };
+    }
+    if (err instanceof InvalidTickerError) {
       return { status: "error", message: err.message };
     }
     console.error("add ticker failed", err);
@@ -46,13 +63,24 @@ export async function addTickerAction(
   }
 
   revalidatePath("/");
-  return {
-    status: "success",
-    message:
-      security.name === security.ticker
-        ? `Added ${security.ticker}`
-        : `Added ${security.ticker} — ${security.name}`,
-  };
+
+  /*
+   * A forced add says what was actually created. The row exists, but nothing
+   * identified the company, so there is no name, no filings and no
+   * fundamentals behind it — and a bare "Added GAW" would leave the user to
+   * discover that by finding an empty company page.
+   */
+  if (security.name === security.ticker) {
+    return {
+      status: "success",
+      message:
+        `Added ${security.ticker}, unverified. No source recognised it, so ` +
+        `there is no company name, filings or financials — prices will appear ` +
+        `if your quote provider knows the symbol.`,
+    };
+  }
+
+  return { status: "success", message: `Added ${security.ticker} — ${security.name}` };
 }
 
 export async function removeTickerAction(formData: FormData): Promise<void> {

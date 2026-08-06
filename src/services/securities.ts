@@ -143,7 +143,18 @@ export async function getSecurityByTicker(
   return rows[0] ?? null;
 }
 
-export async function findOrCreateSecurity(input: string): Promise<Security> {
+/**
+ * @param opts.force Add the symbol even when no source recognises it.
+ *
+ * Bypasses the existence check only. A malformed symbol is still refused,
+ * because that is a mistake rather than a judgement — there is no symbol the
+ * user could mean by `not a ticker!!`, so offering to add it anyway would be
+ * offering to create a row that can never resolve to anything.
+ */
+export async function findOrCreateSecurity(
+  input: string,
+  opts: { force?: boolean } = {},
+): Promise<Security> {
   const ticker = normalizeTicker(input);
   if (!isValidTicker(ticker)) throw new InvalidTickerError(input);
 
@@ -171,7 +182,9 @@ export async function findOrCreateSecurity(input: string): Promise<Security> {
     quoteVouches: profile === null && (await quoteVouchesFor(ticker)),
     profileLookupConclusive: conclusive,
   };
-  if (isUnknownSymbol(evidence)) throw new UnknownTickerError(ticker);
+  if (!opts.force && isUnknownSymbol(evidence)) {
+    throw new UnknownTickerError(ticker);
+  }
 
   const [row] = await db
     .insert(securities)

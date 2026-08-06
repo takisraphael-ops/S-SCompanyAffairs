@@ -18,6 +18,29 @@ function SubmitButton() {
   );
 }
 
+/**
+ * Overrides the refusal for a symbol nothing recognised.
+ *
+ * A submit button rather than a second form: nesting forms is invalid HTML,
+ * and carrying `force` as this button's own `value` means the override cannot
+ * be replayed by a later ordinary submit — the flag exists only for the click
+ * that asked for it.
+ */
+function ForceButton({ ticker }: { ticker: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      name="force"
+      value="1"
+      disabled={pending}
+      className="rounded-md border border-neutral-300 px-3 py-1.5 text-xs font-medium transition hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+    >
+      {pending ? "Adding…" : `Add ${ticker} anyway`}
+    </button>
+  );
+}
+
 export function AddTickerForm() {
   const [state, formAction] = useActionState(addTickerAction, initialFormState);
 
@@ -39,9 +62,18 @@ export function AddTickerForm() {
     if (state.status === "success") setValue("");
   }
 
+  /*
+   * The override is offered only while the box still holds the symbol that
+   * was refused. Editing it withdraws the offer, because the button submits
+   * whatever the input currently contains — leaving it on screen would let
+   * "Add GAW anyway" add something else entirely.
+   */
+  const showForce =
+    !!state.unrecognised && value.trim().toUpperCase() === state.unrecognised;
+
   return (
-    <div className="mb-8">
-      <form action={formAction} className="flex flex-wrap items-center gap-2">
+    <form action={formAction} className="mb-8">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -53,20 +85,23 @@ export function AddTickerForm() {
           className="w-64 rounded-md border border-neutral-300 bg-transparent px-3 py-2 text-sm uppercase placeholder:normal-case placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none dark:border-neutral-700"
         />
         <SubmitButton />
-      </form>
+      </div>
 
       {state.status !== "idle" && state.message && (
-        <p
-          role="status"
-          className={`mt-2 text-sm ${
-            state.status === "error"
-              ? "text-down"
-              : "text-neutral-600 dark:text-neutral-400"
-          }`}
-        >
-          {state.message}
-        </p>
+        <div className="mt-2 flex flex-wrap items-start gap-x-3 gap-y-2">
+          <p
+            role="status"
+            className={`max-w-prose text-sm ${
+              state.status === "error"
+                ? "text-down"
+                : "text-neutral-600 dark:text-neutral-400"
+            }`}
+          >
+            {state.message}
+          </p>
+          {showForce && <ForceButton ticker={state.unrecognised!} />}
+        </div>
       )}
-    </div>
+    </form>
   );
 }
