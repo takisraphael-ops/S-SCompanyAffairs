@@ -30,7 +30,10 @@ import { loadEnvFiles } from "@/lib/load-env";
 import { getLatestFundamentals } from "@/services/fundamentals";
 import * as D from "@/lib/decimal";
 import { LedgerError, getPortfolio, recordTransaction } from "@/services/portfolio";
-import { InvalidTickerError } from "@/services/securities";
+import {
+  InvalidTickerError,
+  UnknownTickerError,
+} from "@/services/securities";
 import {
   addToWatchlist,
   listWatchlist,
@@ -44,6 +47,15 @@ loadEnvFiles();
  * the teardown deletes whatever it touched.
  */
 const TICKERS = ["ZZTA", "ZZTB", "ZZTC"];
+
+/**
+ * For the override. Deliberately never inserted up front — the point of the
+ * test is that it does not exist and no source can recognise it, which is the
+ * position a London listing is in on a keyless install.
+ */
+const FORCED = "ZZTF";
+
+const ALL_TEST_TICKERS = [...TICKERS, FORCED];
 
 let failures = 0;
 function check(label: string, cond: boolean, detail = "") {
@@ -60,7 +72,7 @@ async function teardown() {
   const ids = await db
     .select({ id: securities.id })
     .from(securities)
-    .where(inArray(securities.ticker, TICKERS));
+    .where(inArray(securities.ticker, ALL_TEST_TICKERS));
   if (ids.length) {
     await db.delete(transactions).where(
       inArray(
@@ -81,7 +93,7 @@ async function teardown() {
       ),
     );
   }
-  await db.delete(securities).where(inArray(securities.ticker, TICKERS));
+  await db.delete(securities).where(inArray(securities.ticker, ALL_TEST_TICKERS));
 }
 
 async function main() {
@@ -112,6 +124,42 @@ async function main() {
     InvalidTickerError,
     "rejects a malformed ticker",
   );
+
+  /*
+   * The override, and the line it does not cross.
+   *
+   * EDGAR is answered locally for these four checks, and not for speed.
+   * Without it the assertions are vacuous anywhere sec.gov cannot be reached
+   * — which includes the CI runner, since the SEC 403s it. An unreachable
+   * EDGAR makes the lookup inconclusive, the app then accepts unknown symbols
+   * on purpose, and "force added ZZTF" would pass just as happily on a build
+   * where `force` did nothing at all.
+   *
+   * Answering as an EDGAR that is reachable and simply does not have the
+   * symbol puts the refusal back. That is the only state in which an override
+   * means anything.
+   */
+  await withStubbedEdgar(async () => {
+    await assertRejects(
+      () => addToWatchlist(FORCED),
+      UnknownTickerError,
+      "refuses a symbol a reachable EDGAR does not have",
+    );
+
+    const forced = await addToWatchlist(FORCED, { force: true });
+    check("force adds that same symbol", forced.ticker === FORCED, forced.ticker);
+    check(
+      "and leaves it visibly unidentified",
+      forced.name === FORCED && forced.cik === null,
+      `name=${forced.name} cik=${forced.cik}`,
+    );
+    await assertRejects(
+      () => addToWatchlist("not a ticker!!", { force: true }),
+      InvalidTickerError,
+      "force does not bypass a malformed ticker",
+    );
+    await removeFromWatchlist(forced.id);
+  });
 
   // --- add ---------------------------------------------------------------
   const added = await addToWatchlist(a.toLowerCase());
@@ -389,6 +437,39 @@ async function main() {
 
   await teardown();
   console.log(failures === 0 ? "\nsmoke: all checks passed" : `\nsmoke: ${failures} failed`);
+}
+
+/**
+ * Runs `fn` with EDGAR answering from here: reachable, and knowing nothing.
+ *
+ * Only the two endpoints the profile lookup uses are intercepted, and only
+ * for the duration of the callback — everything else, including the quote
+ * provider, goes through untouched. Restored in a `finally` so a failed
+ * assertion cannot leave the rest of the script talking to a stub.
+ */
+async function withStubbedEdgar(fn: () => Promise<void>) {
+  const realFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+
+    // An empty ticker map: EDGAR replied, and has no such company.
+    if (url.includes("company_tickers.json")) {
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("sec.gov")) return new Response("Not Found", { status: 404 });
+
+    return realFetch(input, init);
+  }) as typeof fetch;
+
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 async function assertRejects(

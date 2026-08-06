@@ -70,6 +70,26 @@ If EDGAR cannot be reached at all, the symbol is accepted. An outage that
 locks you out of adding companies is a dead end you cannot work around; one
 unwanted row is a click to remove.
 
+### Adding something EDGAR has never heard of
+
+Refusing an unrecognised symbol is a guess, and it is wrong for a whole
+category of real companies: EDGAR knows SEC registrants, so a London or
+Frankfurt listing — Games Workshop, say — looks exactly like a typo to it.
+
+So the refusal offers a way past itself. A symbol nothing recognised gets an
+**Add anyway** button, and taking it creates the row with the company name
+left unresolved: no filings, no fundamentals, and prices only if your quote
+provider knows the symbol. The message says as much when the row appears,
+rather than leaving you to find an empty company page later.
+
+A malformed symbol is never offered this. There is no company you could mean
+by `not a ticker!!`, so there is nothing to overrule — the distinction is
+between a judgement the app might get wrong and a mistake it cannot.
+
+For proper coverage of non-US listings, set `FINNHUB_API_KEY`; note that
+Finnhub generally wants the exchange-suffixed symbol (`GAW.L` rather than
+`GAW`).
+
 ### Using real market data
 
 Get a free key at [finnhub.io](https://finnhub.io/register) (~60 requests per
